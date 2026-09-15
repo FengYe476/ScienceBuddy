@@ -1,0 +1,18 @@
+{
+  "dataset": "data/releases/id715-val90-test90-v1",
+  "model": "models/Qwen3.5-4B",
+  "harness": "src/simple_scibuddy/harness/scientific.py",
+  "concurrency": 64,
+  "actions": 9,
+  "seconds": 900,
+  "tool_seconds": 60,
+  "context_tokens": 24576,
+  "max_tokens": 4096,
+  "samples_per_prompt": 8,
+  "seed": 42,
+  "observation_chars": 8000,
+  "checkpoint_interval": 0,
+  "tool_response_tokens": 2048,
+  "tool_history_tokens": 8192,
+  "eval_interval": 30
+}

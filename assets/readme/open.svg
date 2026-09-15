@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="176" height="72" viewBox="0 0 88 48" preserveAspectRatio="none" role="img" aria-labelledby="title description">
+  <title id="title">Open ScienceBuddy Preview</title>
+  <desc id="description">Open the ScienceBuddy scientific workspace.</desc>
+  <style>
+    .pill { fill: #015AFE; animation: glow 2.4s ease-in-out infinite; }
+    .corner { fill: none; stroke: #52525B; animation: focus 2.4s ease-in-out infinite; }
+    .tl { --dx: 2px; --dy: 2px; }
+    .tr { --dx: -2px; --dy: 2px; }
+    .bl { --dx: 2px; --dy: -2px; }
+    .br { --dx: -2px; --dy: -2px; }
+    @keyframes glow { 0%, 15%, 100% { fill: #015AFE; } 55% { fill: #087BED; } }
+    @keyframes focus { 0%, 15%, 100% { stroke: #52525B; transform: translate(0, 0); } 55% { stroke: #015AFE; transform: translate(var(--dx), var(--dy)); } }
+    @media (prefers-reduced-motion: reduce) { .pill, .corner { animation: none; } }
+  </style>
+  <path class="corner tl" d="M1 5V1h4"/>
+  <path class="corner tr" d="M83 1h4v4"/>
+  <path class="corner bl" d="M1 43v4h4"/>
+  <path class="corner br" d="M83 47h4v-4"/>
+  <rect class="pill" x="5" y="5" width="78" height="38" rx="19"/>
+  <text x="44" y="29" text-anchor="middle" fill="#FFFFFF" font-family="DejaVu Sans Mono, Liberation Mono, monospace" font-size="14" font-weight="700">OPEN</text>
+</svg>
