@@ -1,6 +1,6 @@
 <div align="center">
 
-<a href="https://science-buddy.io" title="Open ScienceBuddy Preview">
+<a href="http://science-buddy.io/" title="Open ScienceBuddy Preview">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="assets/readme/wordmark-dark.svg">
     <img src="assets/readme/wordmark-light.svg" width="1000" alt="ScienceBuddy-Preview">
@@ -10,7 +10,7 @@
 ### Your interactive scientific agent.
 
 <p align="center">
-  <img src="https://github.githubassets.com/images/icons/emoji/unicode/1f449.png" width="40" height="30" alt="👉" align="absmiddle"> &nbsp;<a href="https://science-buddy.io"><img src="assets/readme/open.svg" width="165" height="67" alt="Open ScienceBuddy" align="absmiddle"></a>&nbsp; <img src="assets/readme/spacer.svg" width="40" height="30" alt="" align="absmiddle">
+  <img src="https://github.githubassets.com/images/icons/emoji/unicode/1f449.png" width="40" height="30" alt="👉" align="absmiddle"> &nbsp;<a href="http://science-buddy.io/"><img src="assets/readme/open.svg" width="165" height="67" alt="Open ScienceBuddy" align="absmiddle"></a>&nbsp; <img src="assets/readme/spacer.svg" width="40" height="30" alt="" align="absmiddle">
 </p>
 
 </div>
@@ -18,7 +18,7 @@
 ---
 
 <p align="center">
-  <a href="https://science-buddy.io"><img src="https://img.shields.io/badge/Website-2563EB?style=for-the-badge" height="28" alt="Website"></a>
+  <a href="http://science-buddy.io/"><img src="https://img.shields.io/badge/Website-2563EB?style=for-the-badge" height="28" alt="Website"></a>
   &nbsp;
   <a href="https://phai-labs.com/en/papers/sciencebuddy/" title="Paper"><img src="https://img.shields.io/badge/Paper-BE3455?style=for-the-badge" height="28" alt="Paper"></a>
   &nbsp;
@@ -74,7 +74,7 @@ bioimaging, literature retrieval and database queries.
 
 ### Use the workspace
 
-Open [ScienceBuddy Preview](https://science-buddy.io) in your browser to explore
+Open [ScienceBuddy Preview](http://science-buddy.io/) in your browser to explore
 the scientific workflows below. The public web version is `science-buddy-preview`.
 
 1. **Create a task.** Start a new session or revisit a task in the sidebar.
