@@ -104,7 +104,9 @@ scientific diagrams retain their original labels.
 
 ### 🎬 Demo: from scientific figures to follow-up questions
 
-https://github.com/user-attachments/assets/9c14f0f3-3e4c-4399-bb61-d18074ceb3b7
+https://github.com/user-attachments/assets/6afb8e6a-fdbc-4167-9be2-f9221fe0a27a
+
+[Download demo video](https://raw.githubusercontent.com/Gen-Verse/ScienceBuddy/main/assets/sciencebuddy-demo.mp4)
 
 The recording follows successive image-based requests: an HMGCR analysis diagram,
 an Alzheimer's-related network and an immune-signaling figure. It shows uploading
