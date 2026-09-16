@@ -215,14 +215,11 @@ PhAI Labs Technical Report **PHAI-TR-2026-02**, September 2026, v1.
 ## 📖 Citation
 
 ```bibtex
-@misc{xue2026sciencebuddy,
-    title         = {{ScienceBuddy}: {Recursive-in-Recursive} Self-Improvement for Interactive Scientific Agents},
-    author        = {Xue, Shuhan and Zhong, Jianyuan and Nan, Ziyuan and Li, Wenbin and Yu, Zhaochen and Ding, Jinchao and Gao, Qiang and Zhan, Pengyu and Zhang, Yuntong and Cheng, Tian and Yin, Zhenfei and Wu, Yingcheng and Yang, Ling},
-    year          = {2026},
-    eprint        = {2609.17523},
-    archivePrefix = {arXiv},
-    primaryClass  = {cs.AI},
-    url           = {https://arxiv.org/abs/2609.17523}
+@article{xue2026sciencebuddy,
+  title={ScienceBuddy: Recursive-in-Recursive Self-Improvement for Interactive Scientific Agents},
+  author={Xue, Shuhan and Zhong, Jianyuan and Nan, Ziyuan and Li, Wenbin and Yu, Zhaochen and Ding, Jinchao and Gao, Qiang and Zhan, Pengyu and Zhang, Yuntong and Cheng, Tian and Yin, Zhenfei and Wu, Yingcheng and Yang, Ling},
+  journal={arXiv preprint arXiv:2609.17523},
+  year={2026}
 }
 ```
 
