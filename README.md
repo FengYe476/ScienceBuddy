@@ -20,7 +20,7 @@
 <p align="center">
   <a href="http://science-buddy.io/"><img src="https://img.shields.io/badge/Website-2563EB?style=for-the-badge" height="28" alt="Website"></a>
   &nbsp;
-  <a href="https://phai-labs.com/papers/sciencebuddy/" title="Paper"><img src="https://img.shields.io/badge/Paper-BE3455?style=for-the-badge" height="28" alt="Paper"></a>
+  <a href="https://arxiv.org/abs/2609.17523" title="Paper on arXiv"><img src="https://img.shields.io/badge/Paper-BE3455?style=for-the-badge" height="28" alt="Paper"></a>
   &nbsp;
   <a href="#examples"><img src="https://img.shields.io/badge/Demo-0D9488?style=for-the-badge" height="28" alt="Demo"></a>
   &nbsp;
@@ -204,7 +204,9 @@ to reproduce the simplified experiment.
 
 ## 📄 Paper
 
-[ScienceBuddy: Recursive-in-Recursive Self-Improvement for Interactive Scientific Agents](https://phai-labs.com/papers/sciencebuddy/)
+[ScienceBuddy: Recursive-in-Recursive Self-Improvement for Interactive Scientific Agents](https://arxiv.org/abs/2609.17523)
+
+**arXiv:2609.17523** · [PDF](https://arxiv.org/pdf/2609.17523) · [PhAI Labs Technical Report](https://phai-labs.com/papers/sciencebuddy/)
 
 PhAI Labs Technical Report **PHAI-TR-2026-02**, September 2026, v1.
 
@@ -213,16 +215,14 @@ PhAI Labs Technical Report **PHAI-TR-2026-02**, September 2026, v1.
 ## 📖 Citation
 
 ```bibtex
-@techreport{xue2026sciencebuddy,
-    title       = {{ScienceBuddy}: {Recursive-in-Recursive} Self-Improvement for Interactive Scientific Agents},
-    author      = {Xue, Shuhan and Zhong, Jianyuan and Nan, Ziyuan and Li, Wenbin and Yu, Zhaochen and Ding, Jinchao and Gao, Qiang and Zhan, Pengyu and Zhang, Yuntong and Cheng, Tian and Yin, Zhenfei and Wu, Yingcheng and Yang, Ling},
-    institution = {PhAI Labs},
-    type        = {Technical Report},
-    number      = {PHAI-TR-2026-02},
-    month       = {September},
-    year        = {2026},
-    url         = {https://phai-labs.com/papers/sciencebuddy/},
-    note        = {Version v1. Equal contribution: Shuhan Xue, Jianyuan Zhong, Ziyuan Nan}
+@misc{xue2026sciencebuddy,
+    title         = {{ScienceBuddy}: {Recursive-in-Recursive} Self-Improvement for Interactive Scientific Agents},
+    author        = {Xue, Shuhan and Zhong, Jianyuan and Nan, Ziyuan and Li, Wenbin and Yu, Zhaochen and Ding, Jinchao and Gao, Qiang and Zhan, Pengyu and Zhang, Yuntong and Cheng, Tian and Yin, Zhenfei and Wu, Yingcheng and Yang, Ling},
+    year          = {2026},
+    eprint        = {2609.17523},
+    archivePrefix = {arXiv},
+    primaryClass  = {cs.AI},
+    url           = {https://arxiv.org/abs/2609.17523}
 }
 ```
 
