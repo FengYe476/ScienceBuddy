@@ -20,7 +20,7 @@
 <p align="center">
   <a href="http://science-buddy.io/"><img src="https://img.shields.io/badge/Website-2563EB?style=for-the-badge" height="28" alt="Website"></a>
   &nbsp;
-  <a href="https://phai-labs.com/en/papers/sciencebuddy/" title="Paper"><img src="https://img.shields.io/badge/Paper-BE3455?style=for-the-badge" height="28" alt="Paper"></a>
+  <a href="https://phai-labs.com/papers/sciencebuddy/" title="Paper"><img src="https://img.shields.io/badge/Paper-BE3455?style=for-the-badge" height="28" alt="Paper"></a>
   &nbsp;
   <a href="#examples"><img src="https://img.shields.io/badge/Demo-0D9488?style=for-the-badge" height="28" alt="Demo"></a>
   &nbsp;
@@ -204,7 +204,7 @@ to reproduce the simplified experiment.
 
 ## 📄 Paper
 
-[ScienceBuddy: Recursive-in-Recursive Self-Improvement for Interactive Scientific Agents](https://phai-labs.com/en/papers/sciencebuddy/)
+[ScienceBuddy: Recursive-in-Recursive Self-Improvement for Interactive Scientific Agents](https://phai-labs.com/papers/sciencebuddy/)
 
 PhAI Labs Technical Report **PHAI-TR-2026-02**, September 2026, v1.
 
