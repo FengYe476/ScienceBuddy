@@ -35,16 +35,6 @@ Explore your papers, data and scientific figures with an interactive agent that 
 
 </div>
 
-<a id="examples"></a>
-
-## 🎬 Demo: from scientific figures to follow-up questions
-
-https://github.com/user-attachments/assets/6afb8e6a-fdbc-4167-9be2-f9221fe0a27a
-
-Watch a researcher upload scientific figures, inspect generated analysis and live tool activity, and continue the conversation with follow-up questions.
-
-[Try ScienceBuddy](http://science-buddy.io/) · [Download demo video](https://raw.githubusercontent.com/Gen-Verse/ScienceBuddy/main/assets/sciencebuddy-demo.mp4) · [Example from the paper](#example-from-the-paper)
-
 ## 📰 News
 
 - **2026-09-17 — ScienceIDE released.** Turning the world's scientific code into executable learning environments for scientific agents, with the PhAI-IDE-4B/9B/72B model series. [Paper](https://arxiv.org/abs/2609.19134) · [Code](https://github.com/aitofound/ScienceIDE) · [Models](https://huggingface.co/collections/AItonomy/scienceide-model-series)
@@ -114,6 +104,16 @@ English interface text is reconstructed from recorded interactions; uploaded
 scientific diagrams retain their original labels.
 
 </details>
+
+<a id="examples"></a>
+
+### 🎬 Demo: from scientific figures to follow-up questions
+
+https://github.com/user-attachments/assets/6afb8e6a-fdbc-4167-9be2-f9221fe0a27a
+
+Watch a researcher upload scientific figures, inspect generated analysis and live tool activity, and continue the conversation with follow-up questions.
+
+[Try ScienceBuddy](http://science-buddy.io/) · [Download demo video](https://raw.githubusercontent.com/Gen-Verse/ScienceBuddy/main/assets/sciencebuddy-demo.mp4) · [Example from the paper](#example-from-the-paper)
 
 ### Example from the paper
 
