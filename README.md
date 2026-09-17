@@ -35,6 +35,11 @@ Explore your papers, data and scientific figures with an interactive agent that 
 
 </div>
 
+## 📰 News
+
+- **2026-09-17 — ScienceIDE released.** Turning the world's scientific code into executable learning environments for scientific agents, with the PhAI-IDE-4B/9B/72B model series. [Paper](https://arxiv.org/abs/2609.19134) · [Code](https://github.com/aitofound/ScienceIDE) · [Models](https://huggingface.co/collections/AItonomy/scienceide-model-series)
+- **2026-09-16 — ScienceBuddy released.** An interactive scientific workspace with recursive-in-recursive self-improvement for agent harnesses and models. [Try ScienceBuddy](http://science-buddy.io/) · [Paper](https://arxiv.org/abs/2609.17523) · [Research code](#rsi)
+
 <p align="center">
   <img src="assets/sciencebuddy-overview.svg" width="1000" alt="ScienceBuddy overview: a scientific workspace, nested harness and model improvement, and researcher interaction.">
 </p>
