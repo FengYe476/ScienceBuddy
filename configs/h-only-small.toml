@@ -1,0 +1,46 @@
+# small profile（200/30/30）的 harness-only 复现。第二轮 V=10/T=10 的结论
+# 「涨幅全部来自完成率、提交后命中率不动」在 n=10 下分辨率只有 10pp，
+# 这一轮把 Val/Test 提到 30 来验证它是不是只是看不见。
+#
+#   bash deploy/run.sh configs/h-only-small.toml
+#
+# 相对 configs/h-only.toml 只改了三处，其余保持一致以便对照。
+mode = "harness_evolve"
+experiment = "../runs/h-only-small-01"
+
+[model]
+mode = "train"
+steps = 30
+checkpoint_interval = 0
+eval_interval = 30
+concurrency = 16
+tool_seconds = 60
+
+[harness_evolve]
+selection_tasks = 30              # 改：必须等于 Val split 大小（phase.py:126-127 硬校验）
+candidates = 3
+workers = 16
+feedback_every = 16               # 改：回到上游默认。train 有 200 题，3 步 × 16 = 48 不绕回
+# preflight_task_id 省略：phase.py:187 会退回 train[0]。写死的 ID 属于旧 release 的
+# train split，换 profile 后会触发 "Preflight task must belong to training split"。
+steps_per_phase = 3
+user_turns = 1
+actions = 9
+max_tokens = 4096
+context_tokens = 24576
+seed = 20260911                   # 与 adapter/config.py 的 SPLIT_SEED 一致
+tool_response_tokens = 2048
+tool_history_tokens = 8192
+
+[harness_evolve.improver]
+backend = "remote"
+base_url = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+model = "qwen3.8-max"             # 论文用 GPT-6 Astra；这是可及的替代，报告里须声明
+reasoning_effort = "medium"
+api_key_env = "SCIENCEBUDDY_IMPROVER_API_KEY"
+max_tokens = 8192
+
+[coevolve]
+worker_id = "rl-01"
+max_rounds = 3
+trigger = "always_debug"

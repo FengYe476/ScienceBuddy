@@ -109,9 +109,11 @@ def main():
 
     scenarios = [
         ("当前（已跑完）", steps, len(inter), cands, val, len(baseline)),
-        ("只放大 Val/Test 到 90，步数不变", steps, len(inter), cands, 90, 90),
-        ("论文协议：10 步 x 16 题交互，Val/Test 90", 10, 16, 3, 90, 90),
-        ("折中：5 步 x 8 题交互，Val/Test 30", 5, 8, 3, 30, 30),
+        ("small profile：V=30 T=30，3 步", 3, 8, 3, 30, 30),
+        ("small profile：V=30 T=30，5 步", 5, 8, 3, 30, 30),
+        ("只放大 Test：V=10 T=90，3 步", 3, 8, 3, 10, 90),
+        ("full profile：V=90 T=90，3 步", 3, 8, 3, 90, 90),
+        ("论文协议：10 步 x 16 题交互，V=90 T=90", 10, 16, 3, 90, 90),
     ]
 
     print(BAR)
