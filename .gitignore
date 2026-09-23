@@ -26,3 +26,5 @@ notes/
 private/
 *.pem
 *.key
+.DS_Store
+deploy/__pycache__/

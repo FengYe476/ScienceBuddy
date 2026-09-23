@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 import uuid
 from pathlib import Path
 
@@ -173,3 +174,14 @@ class Container:
                 await self.reader.wait()
             if hasattr(self, "stderr"):
                 self.stderr.close()
+
+
+# --- 后端切换（本 fork 新增）-------------------------------------------------
+# Anvil 等 HPC 不提供 Docker。设 SCIBUDDY_RUNTIME=apptainer 时，Container 指向
+# Apptainer 实现。必须在模块层完成：broker.py:25 把 Container 绑定为
+# run_episode 的默认参数，是在函数定义时求值的，之后再改属性不起作用。
+# 详见 adapter/DEVIATIONS.md 的 B1/B3。
+if os.environ.get("SCIBUDDY_RUNTIME") == "apptainer":  # noqa: E402
+    from simple_scibuddy.environments.apptainer_runtime import (  # noqa: E402,F401
+        ApptainerContainer as Container,
+    )

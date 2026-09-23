@@ -1,0 +1,45 @@
+# 缩小规格的复现配置：适配 adapter 重建的 id40-val10-test10-v1 release。
+# 三轮耦合 —— 验证论文主张③(Sec 4.2, 42.2→73.3%)
+# 上游 configs/train.toml 保持原样作为参照，不要覆盖它。
+#
+#   python scripts/train.py configs/train-id40.toml
+#
+# 与上游默认值的每一处差异都在行尾注明了原因。
+mode = "coevolve"
+experiment = "../runs/coevolve-20260922"
+
+[model]
+mode = "train"
+steps = 30
+checkpoint_interval = 0
+eval_interval = 30
+concurrency = 16                  # 上游 64；本地 runtime 每 episode 起 2 个子进程，先保守
+tool_seconds = 60
+
+[harness_evolve]
+selection_tasks = 10              # 必须等于 Val split 大小（phase.py:126-127 硬校验）
+candidates = 3
+workers = 16                      # 上游 64；配合 --cpus-per-task=16
+feedback_every = 8                # 上游 16；train 只有 40 题，3 步 × 16 = 48 会绕回
+preflight_task_id = "dbqa-08fb781e497b"   # 必须属于 train split（phase.py:188）
+steps_per_phase = 3
+user_turns = 1
+actions = 9
+max_tokens = 4096
+context_tokens = 24576
+seed = 20260911                   # 与 adapter/config.py 的 SPLIT_SEED 一致
+tool_response_tokens = 2048
+tool_history_tokens = 8192
+
+[harness_evolve.improver]
+backend = "remote"
+base_url = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+model = "qwen3.8-max"             # 论文用 GPT-6 Astra；这是可及的替代，报告里须声明
+reasoning_effort = "medium"       # 已验证百炼接受此参数（非 OpenAI provider 常会拒）
+api_key_env = "SCIENCEBUDDY_IMPROVER_API_KEY"
+max_tokens = 8192
+
+[coevolve]
+worker_id = "rl-01"
+max_rounds = 3
+trigger = "always_debug"

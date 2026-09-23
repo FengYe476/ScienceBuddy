@@ -1,0 +1,25 @@
+Bootstrap: docker
+From: python:3.12-slim
+
+%post
+    set -eux
+    apt-get update && apt-get install -y --no-install-recommends \
+        build-essential ca-certificates && rm -rf /var/lib/apt/lists/*
+    # coevolve/capabilities.py:60 声明的库清单
+    pip install --no-cache-dir \
+        numpy pandas pyarrow biopython requests beautifulsoup4 scipy
+    apt-get purge -y build-essential && apt-get autoremove -y
+    mkdir -p /workspace/assets /opt/scitrace /opt/data/biomni_data/data_lake
+    chmod 777 /workspace
+
+%files
+    @SCITRACE@/TOOLS.md /opt/scitrace/TOOLS.md
+    @SCITRACE@/DATA.md  /opt/scitrace/DATA.md
+
+%environment
+    export PYTHONUNBUFFERED=1
+    export PYTHONDONTWRITEBYTECODE=1
+    export HOME=/workspace
+
+%runscript
+    exec python "$@"

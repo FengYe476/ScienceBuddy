@@ -30,9 +30,20 @@ def public_capabilities(environment):
             import pyarrow.parquet as pq
             item.update(format='parquet', reader='pandas.read_parquet', columns=pq.read_schema(path).names)
         elif name.endswith('.pkl'):
+            # 上游假定每个 .pkl 都反序列化成带 .columns 的 DataFrame。Biomni 数据湖里
+            # 有 list 和 dict（enamine_cloud_library_smiles / txgnn_*），会在这里抛
+            # AttributeError，而且发生在 phase.py:190，harness 阶段第一步之前。
             import pandas as pd
-            frame = pd.read_pickle(path)
-            item.update(format='trusted frozen pandas pickle', reader='pandas.read_pickle', columns=list(frame.columns))
+            value = pd.read_pickle(path)
+            item.update(format='trusted frozen pandas pickle', reader='pandas.read_pickle')
+            if hasattr(value, 'columns'):
+                item['columns'] = list(value.columns)
+            else:
+                item['format'] = f'trusted frozen pickle ({type(value).__name__})'
+                if isinstance(value, dict):
+                    item['top_level_keys'] = sorted(map(str, value))[:20]
+                if hasattr(value, '__len__'):
+                    item['length'] = len(value)
         elif name.endswith('.gmt'):
             item.update(format='tab-separated gene sets',
                         fields=['gene set name', 'source description/URL', 'gene symbols from column 3 onward'])
