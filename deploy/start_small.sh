@@ -58,15 +58,42 @@ fi
 
 # ---------------------------------------------------------------- 3. 数据湖
 say "3/7 硬链接数据湖"
-mkdir -p "$NEW/resources"
-if [ "$(ls -1 "$NEW/resources" | wc -l)" -lt "$(ls -1 "$OLD/resources" | wc -l)" ]; then
-    cp -al "$OLD/resources/." "$NEW/resources/" 2>/dev/null \
-        || cp -a "$OLD/resources/." "$NEW/resources/"
-fi
+# 逐个文件处理而不是 cp -al：cp 在目标已存在时返回非零，分不清"上次已经
+# 链好了"（成功）和"链不了"（失败）。os.link + 显式 inode 比对能分开这两种。
+"$PY" - "$OLD/resources" "$NEW/resources" <<'PY'
+import os, pathlib, shutil, sys
+
+old, new = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+new.mkdir(parents=True, exist_ok=True)
+linked = shared = copied = independent = 0
+for src in sorted(old.iterdir()):
+    if not src.is_file():
+        continue
+    dst = new / src.name
+    if dst.exists():
+        a, b = src.stat(), dst.stat()
+        if (a.st_ino, a.st_dev) == (b.st_ino, b.st_dev):
+            shared += 1          # 上次已经链好，这才是幂等的正常情况
+        else:
+            independent += 1     # 独立副本，也能用，不动它
+        continue
+    try:
+        os.link(src, dst)
+        linked += 1
+    except OSError:              # 跨文件系统等，退回真复制
+        shutil.copy2(src, dst)
+        copied += 1
+
+total = linked + shared + copied + independent
+print(f"  本次新建硬链接 {linked} · 已共享 inode {shared} · 复制 {copied} · 独立副本 {independent}")
+print(f"  合计 {total} 个文件")
+missing = {p.name for p in old.iterdir() if p.is_file()} - {p.name for p in new.iterdir() if p.is_file()}
+if missing:
+    sys.exit(f"  缺失 {len(missing)} 个：{sorted(missing)[:5]}")
+PY
 find "$NEW/resources" -type l -print -quit | grep -q . \
     && die "resources 里出现了符号链接，local_tree 会拒绝"
-printf '  %s 个文件，占用 %s（与旧 release 共享 inode）\n' \
-    "$(ls -1 "$NEW/resources" | wc -l)" "$(du -sh --apparent-size "$NEW/resources" | cut -f1)"
+printf '  磁盘占用 %s（硬链接不额外计入）\n' "$(du -sh "$NEW/resources" | cut -f1)"
 
 # ---------------------------------------------------------------- 4. lock
 say "4/7 重写 environment.lock.json"
