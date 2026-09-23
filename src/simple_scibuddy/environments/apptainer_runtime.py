@@ -27,20 +27,38 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from simple_scibuddy.environments.runtime import ControllerFailure
+from simple_scibuddy.environments.runtime import ControllerFailure, ExecutionMemoryBudget
 
 GUEST_WORKSPACE = "/workspace"
 GUEST_SCITRACE = "/opt/scitrace"
 GUEST_LAKE = "/opt/data/biomni_data/data_lake"
 
-CONTROLLER_SOURCE = '''
-import json, runpy, sys, traceback
+# 两侧都先把协议通道 dup 到私有 fd，再把 sys.stdin/stdout 换成安全替身。
+# 被执行的代码（harness 程序、模型生成的工具代码）因此无法关闭或消费协议流。
+# 不做这一步时，一段 input()/sys.stdout.close() 就会让容器以 returncode 1 退出，
+# 进而触发 closed_stream 的 RuntimeError，炸掉整个 TaskGroup。
+CHANNEL_PRELUDE = '''
+import io, json, os, sys
+
+_pin = os.fdopen(os.dup(0), "r")
+_pout = os.fdopen(os.dup(1), "w")
+sys.stdin = io.StringIO("")          # 用户代码读不到协议输入
+sys.stdout = io.StringIO()           # 误用的 print 落进废纸篓而非协议流
+
+
+def _emit(value):
+    _pout.write(json.dumps(value) + "\\n")
+    _pout.flush()
+'''
+
+CONTROLLER_SOURCE = CHANNEL_PRELUDE + '''
+import runpy, traceback
 
 
 class API:
     def call(self, op, **payload):
-        print(json.dumps({"op": op, **payload}), flush=True)
-        line = sys.stdin.readline()
+        _emit({"op": op, **payload})
+        line = _pin.readline()
         if not line:
             raise RuntimeError("Broker disconnected")
         return json.loads(line)
@@ -57,20 +75,29 @@ class API:
 
 if __name__ == "__main__":
     try:
-        task = json.loads(sys.stdin.readline())
+        task = json.loads(_pin.readline())
         runpy.run_path(sys.argv[1])["run"](task, API())
-        print(json.dumps({"op": "end"}), flush=True)
+        _emit({"op": "end"})
     except BaseException:
-        print(json.dumps({"op": "error", "error": traceback.format_exc()}), flush=True)
+        _emit({"op": "error", "error": traceback.format_exc()})
 '''
 
 # 执行容器侧的常驻 REPL。上游把它烤在 release 镜像里，仓库中没有；
 # 协议按 runtime.py:74-77 的期望：读 {"code": ...}，回 {"stdout", "error"}。
-REPL_SOURCE = '''
-import contextlib, io, json, sys, traceback
+REPL_SOURCE = CHANNEL_PRELUDE + '''
+import contextlib, resource, traceback
+
+# 对齐 Docker 的 --memory 16g（见 upstream runtime.py:57）。RLIMIT_AS 限制的是
+# 虚拟地址空间而非 RSS，所以放宽到 32 GiB：目的是让失控分配抛出可捕获的
+# MemoryError，而不是被内核 OOM-kill 掉整个容器（那会丢掉整轮实验）。
+try:
+    _cap = int(os.environ.get("SCIBUDDY_MEM_BYTES", str(32 * 1024 ** 3)))
+    resource.setrlimit(resource.RLIMIT_AS, (_cap, _cap))
+except (ValueError, OSError):
+    pass
 
 state = {"__name__": "__scitrace__"}
-for line in sys.stdin:
+for line in _pin:
     line = line.strip()
     if not line:
         continue
@@ -84,8 +111,21 @@ for line in sys.stdin:
         with contextlib.redirect_stdout(buffer), contextlib.redirect_stderr(buffer):
             exec(compile(code, "<tool>", "exec"), state)
     except BaseException:
-        error = traceback.format_exc(limit=8)
-    print(json.dumps({"stdout": buffer.getvalue(), "error": error}), flush=True)
+        try:
+            error = traceback.format_exc(limit=8)
+        except BaseException:
+            error = "Tool raised an exception that could not be formatted."
+    try:
+        # 代码可能把 redirect 用的缓冲区关掉（sys.stdout.close()），
+        # 此时 getvalue() 会抛 ValueError —— 不能让它中断循环。
+        out = buffer.getvalue()
+    except BaseException:
+        out = ""
+        error = error or "Tool closed its output stream; captured output was lost."
+    try:
+        _emit({"stdout": out, "error": error})
+    except BaseException:
+        break                         # 只有协议流真的断了才退出循环
 '''
 
 
@@ -217,10 +257,29 @@ class ApptainerContainer:
                 return value
 
     async def closed_stream(self, cause=None):
+        """对齐 runtime.py:126-138 的分流，但用可观测的证据代替 docker inspect。
+
+        上游只把确认的内存耗尽降级成单题失败，其他容器死亡一律中止实验
+        （"unknown transport/daemon failures still abort"）。Apptainer 非特权
+        模式设不了 cgroup，拿不到 OOMKilled 标志，所以改用退出码判断：
+        被信号杀死（128+N，OOM-kill 是 137）视为资源耗尽，可恢复；其余
+        仍然当作基础设施故障上抛。
+        """
         self.folder.mkdir(parents=True, exist_ok=True)
-        state = {"runtime": "apptainer",
-                 "returncode": self.process.returncode if self.process else None}
+        code = self.process.returncode if self.process else None
+        stderr_tail = ""
+        try:
+            log = self.folder / "stderr.log"
+            if log.is_file():
+                stderr_tail = log.read_text(errors="replace")[-2000:]
+        except OSError:
+            pass
+        state = {"runtime": "apptainer", "returncode": code,
+                 "killed_by_signal": code is not None and code < 0 or (code or 0) > 128,
+                 "stderr_tail": stderr_tail}
         (self.folder / "exit-state.json").write_text(json.dumps(state, indent=2) + "\n")
+        if self.kind == "execution" and state["killed_by_signal"]:
+            raise ExecutionMemoryBudget(state) from cause
         error = ControllerFailure if self.kind == "controller" else RuntimeError
         raise error(f"{self.kind} 容器流已关闭; state={state}") from cause
 
