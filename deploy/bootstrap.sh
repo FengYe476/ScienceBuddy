@@ -86,7 +86,12 @@ echo "  $(du -sh "$MODEL" | cut -f1)，无软链接"
 
 # ---------------------------------------------------------------- 4. 数据湖
 say "4/6 Biomni 数据湖"
-[ -d "$RELEASE" ] || { echo "  缺少 release $RELEASE_NAME —— 先用 adapter/build_dataset.py 生成并传上来"; exit 1; }
+if [ ! -f "$RELEASE/manifest.json" ]; then
+    echo "  release 不存在，从公开数据源确定性重建（seed 20260911）"
+    "$ROOT/.venv/bin/python" "$DEPLOY/build_release.py" --out "$RELEASE" \
+        --cache "$ROOT/.cache/sources" 2>&1 | tail -12
+fi
+[ -f "$RELEASE/manifest.json" ] || { echo "  release 构建失败"; exit 1; }
 mkdir -p "$LAKE"
 NEED=$("$ROOT/.venv/bin/python" - <<PY
 import json, pathlib
