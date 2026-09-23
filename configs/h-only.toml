@@ -6,7 +6,7 @@
 #
 # 与上游默认值的每一处差异都在行尾注明了原因。
 mode = "harness_evolve"
-experiment = "../runs/h-only-20260922"
+experiment = "../runs/h-only-01"
 
 [model]
 mode = "train"
