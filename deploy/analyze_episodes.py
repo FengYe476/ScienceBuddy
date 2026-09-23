@@ -29,6 +29,7 @@ import sys
 import unicodedata
 
 BAR = "=" * 72
+SHOW_ERRORS = 0
 
 
 def pad(text, width):
@@ -131,6 +132,16 @@ def report(name, episodes):
     kinds = collections.Counter(error_kind(t["observation"]["error"]) for _, t in errs)
     for kind, count in kinds.most_common(10):
         print(f"      {count:3}x  {kind}")
+    if SHOW_ERRORS:
+        for e, t in errs[:SHOW_ERRORS]:
+            code = t.get("code", "").strip()
+            tail = t["observation"]["error"].strip().splitlines()[-1]
+            print(f"\n      --- {e['task_id']} ---")
+            for line in code.splitlines()[:12]:
+                print(f"      | {line[:100]}")
+            if len(code.splitlines()) > 12:
+                print(f"      | … 共 {len(code.splitlines())} 行")
+            print(f"      => {tail[:160]}")
 
     # 同一题里反复撞同一个错 = improver 假设 2(c) 的"重复失败"
     repeats = 0
@@ -147,6 +158,11 @@ def report(name, episodes):
     # ---- 4. 交了、格式对、仍然错 -------------------------------------------
     science = [e for e, _ in good_format if e["reward"] != 1]
     print(f"\n  [4] 提交合法但答案错误   {len(science):3}   <- 真正的科学能力差距")
+    # 总准确率混了两件事：交没交，和交了之后对不对。只有后者是科学能力。
+    attempted = len(good_format)
+    if attempted:
+        print(f"      提交后命中率 {correct}/{attempted} = {correct / attempted:.0%}"
+              "   <- 与总准确率分开看，前者才随能力变化")
 
     # ---- 失败样本 ---------------------------------------------------------
     stuck = nosub or [e for e in episodes if e["stop_reason"] in INCOMPLETE and e["stop_reason"] != "first_answer_evaluation"]
@@ -186,7 +202,11 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("run", nargs="?", default="runs/h-only-01", help="实验目录")
     ap.add_argument("--phase", default="h0001")
+    ap.add_argument("--show-errors", type=int, default=0, metavar="N",
+                    help="每段额外打印 N 个报错工具调用的源码与异常，用来判断模型到底在找什么")
     args = ap.parse_args()
+    global SHOW_ERRORS
+    SHOW_ERRORS = args.show_errors
 
     root = pathlib.Path(args.run) / "harness_evolve" / args.phase
     if not root.is_dir():
