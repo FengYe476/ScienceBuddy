@@ -118,8 +118,13 @@ def convert_dbqa(frame, rng):
     out = []
     for _, row in frame.iterrows():
         subtask = str(row["subtask"]).replace("-v1-public", "")
+        # Per-row groups. LAB-Bench DbQA ships an empty `source` column and each row is an
+        # independent database question, so there is no shared material to keep together.
+        # Grouping by subtask (v1) gave DbQA only 10 groups, which let split_by_group hand
+        # whole subtasks to one split: val ended up 17/17 variant_from_sequence while test
+        # was 15/17 vax_response, and the two splits stopped measuring the same thing.
         public, reference, group, assets = make_choice_task(
-            row, "DbQA", subtask, f"dbqa:{subtask}", rng)
+            row, "DbQA", subtask, f"dbqa:{row['id']}", rng)
         out.append((str(row["id"]), public, reference, group, assets))
     return out
 
@@ -165,7 +170,10 @@ def convert_gwas(frame):
         }
         reference = {"answer": str(row["answer"]).strip()}
         source_id = f"{row['task_name']}-{row['task_instance_id']}"
-        out.append((source_id, public, reference, f"gwas:{row['task_name']}", {}))
+        # Per-row groups for the same reason as DbQA: grouping by task_name gave GWAS only
+        # four groups, so val received six gwas_causal_gene_opentargets while test received
+        # five gwas_variant_prioritization and one causal-gene task.
+        out.append((source_id, public, reference, f"gwas:{source_id}", {}))
     return out
 
 
@@ -181,28 +189,77 @@ def allocate(total, weights):
     return counts
 
 
+def stratum_of(item):
+    """Stratification key: (subtask, is the correct option the longest?).
+
+    Two properties have to match across splits or val stops being a usable proxy for test.
+
+    Subtask, because the ten DbQA subtasks differ enormously in difficulty and in which
+    data-lake file answers them.
+
+    Longest-is-correct, because LAB-Bench writes `ideal` in more detail than its
+    `distractors`, so "always pick the longest option" scores well above chance. That
+    artifact cannot be removed without rewriting benchmark content, but it can be spread
+    evenly, which keeps the trivial baseline identical on every split and therefore
+    reportable as one reference line.
+    """
+    _, public, reference, _, _ = item
+    key = public.get("subtask") or public["family"]
+    options = public.get("options") or []
+    if not options:
+        return (key, "free-form")
+    answer = str(reference["answer"]).strip().upper()
+    index = ord(answer) - 65 if len(answer) == 1 else -1
+    if not 0 <= index < len(options):
+        return (key, "unknown")
+    lengths = [len(o) for o in options]
+    return (key, "longest" if lengths[index] == max(lengths) else "not-longest")
+
+
 def split_by_group(tasks, sizes, rng):
-    """按 source_group 整组划分，尽量避免同一材料跨 split。"""
+    """Deal whole source_groups across splits, stratified by stratum_of.
+
+    v1 shuffled groups and filled test, then val, then train. With coarse groups that
+    handed whole subtasks to a single split. Now groups are interleaved stratum by stratum
+    and each one goes to whichever split is furthest below its share, so every split ends
+    up with the same subtask mix and the same longest-is-correct rate.
+
+    Groups still stay intact: LitQA2 rows sharing a source paper are one group and land
+    together. Only the final group of a split may be trimmed to hit the exact count.
+    """
     groups = defaultdict(list)
     for item in tasks:
         groups[item[3]].append(item)
-    order = sorted(groups, key=lambda g: stable_key(g))
-    rng.shuffle(order)
-    result = {"test": [], "val": [], "train": []}
-    for split in ("test", "val", "train"):
-        need = sizes[split]
-        while len(result[split]) < need and order:
-            group = order[0]
-            members = groups[group]
-            room = need - len(result[split])
-            if len(members) <= room:
-                result[split].extend(members)
-                order.pop(0)
-            else:
-                result[split].extend(members[:room])
-                groups[group] = members[room:]
-        if len(result[split]) < need:
-            raise SystemExit(f"{split} 需要 {need} 条但可用的只有 {len(result[split])}")
+
+    strata = defaultdict(list)
+    for name, members in groups.items():
+        strata[stratum_of(members[0])].append(name)
+    for names in strata.values():
+        names.sort(key=stable_key)
+        rng.shuffle(names)
+
+    # Round-robin across strata so no split can absorb one stratum wholesale.
+    order = []
+    for depth in range(max(len(n) for n in strata.values())):
+        for key in sorted(strata, key=lambda k: stable_key(*k)):
+            if depth < len(strata[key]):
+                order.append(strata[key][depth])
+
+    result = {"train": [], "val": [], "test": []}
+    for group in order:
+        members = groups[group]
+        room = {s: sizes[s] - len(result[s]) for s in result}
+        if not any(v > 0 for v in room.values()):
+            break
+        # Largest remaining share first; stable_key breaks ties without positional bias.
+        split = max(sorted(result), key=lambda s: (room[s] / sizes[s], room[s]))
+        result[split].extend(members[: room[split]])
+
+    for split, need in sizes.items():
+        if len(result[split]) != need:
+            raise SystemExit(
+                f"{split} needs {need} tasks but only {len(result[split])} could be allocated"
+            )
     return result
 
 
