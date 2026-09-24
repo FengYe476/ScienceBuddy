@@ -29,6 +29,25 @@ from pathlib import Path
 
 from simple_scibuddy.environments.runtime import ControllerFailure, ExecutionMemoryBudget
 
+
+class ApptainerMemoryBudget(ExecutionMemoryBudget):
+    """与上游同类型（broker.py:126 按 ExecutionMemoryBudget 捕获），但消息属实。
+
+    上游 runtime.py:18 把消息写死成 "16 GiB ... (Docker OOMKilled)"。这条文本会
+    作为工具观测进入模型上下文，并经 evidence.py:public_evidence 成为 improver
+    的诊断证据 —— 在本 fork 里它三处都不对：没有 Docker、限制是 RLIMIT_AS 而非
+    cgroup、数值是 32 GiB 而非 16 GiB。照抄会让 improver 据假前提改 harness。
+    """
+
+    def __init__(self, state, cap_bytes):
+        RuntimeError.__init__(
+            self,
+            f"Execution container was killed (returncode {state.get('returncode')}); "
+            f"its address space limit is {cap_bytes // 1024 ** 3} GiB (Apptainer, RLIMIT_AS). "
+            "Load a slice or an aggregate instead of the whole file.",
+        )
+        self.state = state
+
 GUEST_WORKSPACE = "/workspace"
 GUEST_SCITRACE = "/opt/scitrace"
 GUEST_LAKE = "/opt/data/biomni_data/data_lake"
@@ -279,7 +298,8 @@ class ApptainerContainer:
                  "stderr_tail": stderr_tail}
         (self.folder / "exit-state.json").write_text(json.dumps(state, indent=2) + "\n")
         if self.kind == "execution" and state["killed_by_signal"]:
-            raise ExecutionMemoryBudget(state) from cause
+            cap = int(os.environ.get("SCIBUDDY_MEM_BYTES", str(32 * 1024**3)))
+            raise ApptainerMemoryBudget(state, cap) from cause
         error = ControllerFailure if self.kind == "controller" else RuntimeError
         raise error(f"{self.kind} 容器流已关闭; state={state}") from cause
 
