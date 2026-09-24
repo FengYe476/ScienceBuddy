@@ -1,24 +1,28 @@
 #!/usr/bin/env python3
-"""审计每一步 harness 改了什么，以及有没有在钻 benchmark 的空子。
+"""Audit what each step changed in the harness, and whether it is gaming the benchmark.
 
     python3 deploy/audit_harness.py runs/h-only-small-01 --release data/releases/id200-val30-test30-v1
 
-三段，互相独立：
+Three sections, independent of each other:
 
-  [A] 数据集侧的可利用偏差 —— 这些是我 build_release.py 造出来的，不是模型的错，
-      但 harness 一旦学会利用就会得到虚高的分数：
-        * 正确字母的边缘分布（选项数不等时会偏向靠前字母）
-        * 正确选项是否系统性更长（MCQ 最经典的伪特征）
-        * 几个不看题就能拿分的平凡基线
+  [A] Exploitable bias on the dataset side -- these were produced by my own
+      build_release.py, so they are not the model's fault, but once the harness learns
+      to exploit them it gets an inflated score:
+        * the marginal distribution of the correct letter (with unequal option counts
+          it skews towards the earlier letters)
+        * whether the correct option is systematically longer (the classic spurious
+          MCQ feature)
+        * a few trivial baselines that score points without reading the task at all
 
-  [B] harness 逐步 diff —— 每步在父程序基础上加了哪些行。
+  [B] Step-by-step harness diff -- which lines each step added on top of the parent.
 
-  [C] harness 文本扫描 —— 找三类东西：
-        * 任意任务的参考答案原文（GWAS 是 rsID / 基因名，可直接搜）
-        * 字母偏好启发式（"if unsure answer C"）
-        * 任务 ID、沙箱外路径
+  [C] Harness text scan -- looking for three kinds of thing:
+        * the verbatim reference answer of any task (GWAS answers are rsIDs / gene
+          names, which can be searched for directly)
+        * letter-preference heuristics ("if unsure answer C")
+        * task IDs, paths outside the sandbox
 
-只读，纯标准库。
+Read-only, pure standard library.
 """
 
 import argparse
@@ -33,7 +37,8 @@ BAR = "=" * 76
 
 
 def selected_harnesses(root):
-    """返回 [(阶段名, Path)]，按步顺序；H0 是 baseline 用的初始程序。"""
+    """Return [(stage name, Path)] in step order; H0 is the initial program the
+    baseline uses."""
     out = []
     for step in sorted(root.glob("step-*")):
         update = step / "update.json"
@@ -52,11 +57,13 @@ def selected_harnesses(root):
     return out
 
 
-# --------------------------------------------------------------- [A] 数据集
+# --------------------------------------------------------------- [A] dataset
 def audit_dataset(release, splits=("val", "test")):
-    """逐 split 分别算，再合并。分开算是必要的：自由作答题无法靠启发式猜中，
-    而两个 split 的选择题/自由作答比例不同，混在一起的平凡基线没法直接拿去
-    和某个 split 上的准确率比较。"""
+    """Compute each split separately, then combined. Computing them separately is
+    necessary: free-response tasks cannot be guessed by a heuristic, and the two splits
+    have different ratios of multiple-choice to free-response, so a trivial baseline
+    computed over the mixture cannot be compared directly against the accuracy measured
+    on one split."""
     free = []
     for split in splits:
         free.extend(audit_one_split(release, split))
@@ -70,7 +77,7 @@ def audit_one_split(release, split, label=None):
     wanted = {split} if isinstance(split, str) else set(split)
     rows = [r for r in manifest["tasks"] if r["split"] in wanted]
     print(BAR)
-    print(f"[A] 数据集可利用偏差   split={label or split}   {len(rows)} 题")
+    print(f"[A] exploitable dataset bias   split={label or split}   {len(rows)} tasks")
     print(BAR)
 
     letters, n_options, longest_hit, first_hit, mcq = (
@@ -102,35 +109,43 @@ def audit_one_split(release, split, label=None):
                 first_hit += 1
 
     if not mcq:
-        print("  没有选择题")
+        print("  no multiple-choice tasks")
         return
-    print(f"  选择题 {mcq} 道，自由作答 {len(free_answers)} 道\n")
-    print("  正确字母分布（均匀时每个字母应约为 1/选项数）:")
+    print(f"  {mcq} multiple-choice tasks, {len(free_answers)} free-response\n")
+    print("  Correct-letter distribution (if uniform, each letter should be about "
+          "1/option-count):")
     for letter, count in sorted(letters.items()):
         print(f"      {letter}  {count:3}  {count / mcq:5.1%}")
-    print("\n  每题选项数:")
+    print("\n  Options per task:")
     for k, v in sorted(n_options.items()):
-        print(f"      {k} 个选项  {v:3} 题")
+        print(f"      {k} options  {v:3} tasks")
 
     total = len(rows)
     uniform = sum(v / k for k, v in n_options.items()) / mcq
     best_letter, best_n = letters.most_common(1)[0]
-    print(f"\n  平凡基线（不看题也能拿的分）           选择题内   整个 split")
-    print(f"      随机猜（按各题选项数）        {uniform:8.1%}   {mcq * uniform / total:8.1%}")
-    print(f"      永远答最常见字母 {best_letter}            {best_n / mcq:8.1%}   {best_n / total:8.1%}"
-          f"  {'<- 可被利用' if best_n / mcq > uniform + 0.10 else ''}")
-    print(f"      永远选最长的选项              {longest_hit / mcq:8.1%}   {longest_hit / total:8.1%}"
-          f"  {'<- 长度偏差，可被利用' if longest_hit / mcq > uniform + 0.10 else ''}")
-    print(f"      永远选 A                      {first_hit / mcq:8.1%}   {first_hit / total:8.1%}")
-    print(f"\n  「整个 split」一列把 {len(free_answers)} 道自由作答按 0 分计 —— 启发式猜不中 rsID/基因名。")
-    print("  报告准确率时要和这一列比，不是和「选择题内」比。")
+    print("\n  Trivial baselines (points obtainable without reading the task)")
+    print(f"      {'':38} {'within MCQ':>10} {'whole split':>11}")
+    print(f"      {'random guess (per-task option count)':38} "
+          f"{uniform:10.1%} {mcq * uniform / total:11.1%}")
+    print(f"      {'always answer the most common letter ' + best_letter:38} "
+          f"{best_n / mcq:10.1%} {best_n / total:11.1%}"
+          f"  {'<- exploitable' if best_n / mcq > uniform + 0.10 else ''}")
+    print(f"      {'always pick the longest option':38} "
+          f"{longest_hit / mcq:10.1%} {longest_hit / total:11.1%}"
+          f"  {'<- length bias, exploitable' if longest_hit / mcq > uniform + 0.10 else ''}")
+    print(f"      {'always answer A':38} {first_hit / mcq:10.1%} {first_hit / total:11.1%}")
+    print(f"\n  The \"whole split\" column scores the {len(free_answers)} free-response "
+          "tasks as 0 -- a heuristic")
+    print("  cannot guess rsIDs/gene names. Compare reported accuracy against that "
+          "column, not")
+    print("  against \"within MCQ\".")
     return free_answers
 
 
 # --------------------------------------------------------------- [B] diff
 def audit_diffs(initial, stages):
     print("\n" + BAR)
-    print("[B] 每步在父程序上加了什么")
+    print("[B] what each step added on top of the parent")
     print(BAR)
     previous, previous_name = initial.read_text().splitlines(), "H0 (scientific.py)"
     for name, path, data in stages:
@@ -139,59 +154,61 @@ def audit_diffs(initial, stages):
         added = [l[1:] for l in diff if l.startswith("+") and not l.startswith("+++")]
         removed = [l[1:] for l in diff if l.startswith("-") and not l.startswith("---")]
         print(f"\n  {previous_name}  ->  {name}")
-        print(f"      {len(previous)} 行 -> {len(current)} 行   +{len(added)} / -{len(removed)}")
+        print(f"      {len(previous)} lines -> {len(current)} lines   "
+              f"+{len(added)} / -{len(removed)}")
         if data.get("hypothesis"):
-            print(f"      假设: {data['hypothesis'][:260]}")
+            print(f"      hypothesis: {data['hypothesis'][:260]}")
         show = [l for l in added if l.strip()][:14]
         for line in show:
             print(f"      + {line[:118]}")
         if len(added) > len(show):
-            print(f"      … 另有 {len(added) - len(show)} 行")
+            print(f"      … {len(added) - len(show)} further lines")
         previous, previous_name = current, name
 
 
-# --------------------------------------------------------------- [C] 扫描
+# --------------------------------------------------------------- [C] scan
 SUSPICIOUS = [
     (r"(?i)\b(if|when)\b[^.\n]{0,60}\b(unsure|uncertain|unclear|cannot determine|no evidence)\b"
-     r"[^.\n]{0,60}\b(answer|choose|pick|select|guess)\b", "不确定时的兜底猜测规则"),
-    (r"(?i)\b(always|default to|prefer)\b[^.\n]{0,40}\b(option\s*)?[A-E]\b(?![a-z])", "字母偏好"),
-    (r"(?i)\blongest\b[^.\n]{0,40}\boption\b|\boption\b[^.\n]{0,40}\blongest\b", "按长度选项"),
-    (r"(?i)\bmost (specific|detailed|technical)\b[^.\n]{0,30}\b(option|answer|choice)\b", "按措辞风格选项"),
-    (r"/(etc|root|home)/|\.\./\.\./|evaluator/|reference\.json", "沙箱外路径或参考答案文件"),
+     r"[^.\n]{0,60}\b(answer|choose|pick|select|guess)\b", "fallback guessing rule when unsure"),
+    (r"(?i)\b(always|default to|prefer)\b[^.\n]{0,40}\b(option\s*)?[A-E]\b(?![a-z])", "letter preference"),
+    (r"(?i)\blongest\b[^.\n]{0,40}\boption\b|\boption\b[^.\n]{0,40}\blongest\b", "picking an option by length"),
+    (r"(?i)\bmost (specific|detailed|technical)\b[^.\n]{0,30}\b(option|answer|choice)\b", "picking an option by wording style"),
+    (r"/(etc|root|home)/|\.\./\.\./|evaluator/|reference\.json", "path outside the sandbox or reference-answer file"),
 ]
 
 
 def audit_scan(stages, free_answers, release):
     print("\n" + BAR)
-    print("[C] harness 文本扫描")
+    print("[C] harness text scan")
     print(BAR)
 
-    # 所有任务的 task_id，用于查硬编码
+    # The task_id of every task, used to look for hard-coding
     manifest = json.loads((release / "manifest.json").read_text())
     task_ids = {r["id"] for r in manifest["tasks"]}
-    # 自由作答的参考答案（rsID / 基因名）足够独特，可以直接搜
+    # Free-response reference answers (rsIDs / gene names) are distinctive enough to
+    # search for directly
     answers = {a for _, a in free_answers if len(a) >= 4}
 
     for name, path, _ in stages:
         text = path.read_text()
-        print(f"\n  [{name}]  {len(text.splitlines())} 行")
+        print(f"\n  [{name}]  {len(text.splitlines())} lines")
         hits = 0
         for pattern, label in SUSPICIOUS:
             for m in re.finditer(pattern, text):
                 line = text[:m.start()].count("\n") + 1
-                print(f"      !! {label}  第 {line} 行: {m.group(0)[:90]}")
+                print(f"      !! {label}  line {line}: {m.group(0)[:90]}")
                 hits += 1
         leaked = sorted(a for a in answers
                         if re.search(rf"(?<![A-Za-z0-9_]){re.escape(a)}(?![A-Za-z0-9_])", text))
         if leaked:
-            print(f"      !! 含参考答案原文 {len(leaked)} 个: {leaked[:6]}")
+            print(f"      !! contains {len(leaked)} verbatim reference answers: {leaked[:6]}")
             hits += 1
         ids = sorted(t for t in task_ids if t in text)
         if ids:
-            print(f"      !! 含任务 ID {len(ids)} 个: {ids[:6]}")
+            print(f"      !! contains {len(ids)} task IDs: {ids[:6]}")
             hits += 1
         if not hits:
-            print("      未发现可疑模式")
+            print("      no suspicious patterns found")
 
 
 def main():
@@ -205,13 +222,14 @@ def main():
     root = pathlib.Path(args.run) / "harness_evolve" / args.phase
     release = pathlib.Path(args.release)
     initial = pathlib.Path(args.initial)
-    for p, what in ((root, "实验目录"), (release / "manifest.json", "release"), (initial, "初始 harness")):
+    for p, what in ((root, "experiment directory"), (release / "manifest.json", "release"),
+                    (initial, "initial harness")):
         if not p.exists():
-            sys.exit(f"找不到{what}: {p}")
+            sys.exit(f"cannot find {what}: {p}")
 
     stages = selected_harnesses(root)
     if not stages:
-        sys.exit(f"{root} 下没有找到被采纳的 harness")
+        sys.exit(f"no accepted harness found under {root}")
 
     free_answers = audit_dataset(release) or []
     audit_diffs(initial, stages)

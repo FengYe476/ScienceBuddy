@@ -1,18 +1,22 @@
 #!/usr/bin/env python3
-"""核对 val / test 两个 split 是否可交换，以及各自由哪些 subtask 构成。
+"""Check whether the val / test splits are interchangeable, and which subtasks each is
+made of.
 
     python3 deploy/split_audit.py data/releases/id200-val30-test30-v1
     python3 deploy/split_audit.py data/releases/id200-val30-test30-v1 --run runs/h-only-small-01
 
-为什么要查：build_release.py:184 的 split_by_group 按 source_group 整组分配，
-而 DbQA 的 source_group 是 f"dbqa:{subtask}" —— 一个子任务就是一个组，DbQA
-只有 10 个组。于是 test 拿到整块的一两个子任务、val 拿到另外一两个，两个
-split 的难度不再可交换。h-only-small-01 里同一份 harness 在 val 上 15/30、
-在 test 上 26/30，比值在 H0（4/30 vs 8/30）时同样约 0.5 —— 像是 split 属性
-而非程序差异，本脚本用来确认。
+Why this needs checking: split_by_group in build_release.py:184 assigns whole
+source_group blocks at a time, and DbQA's source_group is f"dbqa:{subtask}" -- one
+subtask is one group, and DbQA has only 10 groups. So test receives one or two whole
+subtasks and val receives one or two different ones, and the two splits are no longer
+interchangeable in difficulty. In h-only-small-01 the very same harness scores 15/30
+on val and 26/30 on test, and the ratio is likewise about 0.5 at H0 (4/30 vs 8/30) --
+which looks like a property of the split rather than a difference between programs.
+This script is how that gets confirmed.
 
-给 --run 时，额外按 subtask 拆开 baseline 与最终评估的正确率，看涨幅集中
-在哪些子任务上。只读，纯标准库。
+Given --run, it additionally breaks the baseline and final-evaluation accuracies down
+by subtask, to see which subtasks the gain is concentrated in.
+Read-only, pure standard library.
 """
 
 import argparse
@@ -59,11 +63,11 @@ def main():
 
     release = pathlib.Path(args.release)
     if not (release / "manifest.json").is_file():
-        sys.exit(f"找不到 {release}/manifest.json")
+        sys.exit(f"cannot find {release}/manifest.json")
     tasks = read_tasks(release)
 
     print(BAR)
-    print("各 split 的 family 构成")
+    print("family composition of each split")
     print(BAR)
     fam = collections.defaultdict(collections.Counter)
     for t in tasks:
@@ -74,11 +78,12 @@ def main():
         print(f"  {split:6} {total:4}   {share}")
 
     print("\n" + BAR)
-    print("各 split 的 subtask 构成 —— 交集为空就说明两个 split 不可交换")
+    print("subtask composition of each split -- an empty intersection means the two "
+          "splits are not interchangeable")
     print(BAR)
     sub = collections.defaultdict(collections.Counter)
     for t in tasks:
-        sub[t["split"]][t["subtask"] or "(无)"] += 1
+        sub[t["split"]][t["subtask"] or "(none)"] += 1
     for split in ("val", "test"):
         print(f"\n  [{split}]")
         for name, n in sub[split].most_common():
@@ -86,22 +91,23 @@ def main():
     shared = set(sub["val"]) & set(sub["test"])
     only_val = set(sub["val"]) - set(sub["test"])
     only_test = set(sub["test"]) - set(sub["val"])
-    print(f"\n  共有 subtask {len(shared)} 个: {sorted(shared) or '无'}")
-    print(f"  仅 val  {len(only_val)} 个: {sorted(only_val) or '无'}")
-    print(f"  仅 test {len(only_test)} 个: {sorted(only_test) or '无'}")
+    print(f"\n  subtasks in common {len(shared)}: {sorted(shared) or 'none'}")
+    print(f"  val only  {len(only_val)}: {sorted(only_val) or 'none'}")
+    print(f"  test only {len(only_test)}: {sorted(only_test) or 'none'}")
     if not shared:
-        print("\n  !! val 与 test 没有任何共同 subtask —— 两者测的不是同一件事，")
-        print("     在 val 上做选择、在 test 上报结果，等于换了一份考卷。")
+        print("\n  !! val and test share no subtask at all -- they are not measuring the "
+              "same thing;")
+        print("     selecting on val and reporting on test amounts to swapping the exam paper.")
 
     print("\n" + BAR)
-    print("source_group 重叠（experiments.md:127 记录论文为 Train-Val 20 组）")
+    print("source_group overlap (experiments.md:127 records the paper as 20 Train-Val groups)")
     print(BAR)
     groups = collections.defaultdict(set)
     for t in tasks:
         groups[t["split"]].add(t["source_group"])
-    print(f"  Train-Val  {len(groups['train'] & groups['val']):3} 组")
-    print(f"  Train-Test {len(groups['train'] & groups['test']):3} 组")
-    print(f"  Val-Test   {len(groups['val'] & groups['test']):3} 组")
+    print(f"  Train-Val  {len(groups['train'] & groups['val']):3} groups")
+    print(f"  Train-Test {len(groups['train'] & groups['test']):3} groups")
+    print(f"  Val-Test   {len(groups['val'] & groups['test']):3} groups")
 
     if not args.run:
         return
@@ -114,11 +120,11 @@ def main():
         if final:
             break
     if not (base and final):
-        print("\n（没有完整的 baseline / evaluation，跳过分 subtask 的对照）")
+        print("\n(no complete baseline / evaluation, skipping the per-subtask comparison)")
         return
 
     print("\n" + BAR)
-    print("test 上按 subtask 的 H0 -> H*  —— 涨幅集中在哪")
+    print("H0 -> H* by subtask on test  -- where the gain is concentrated")
     print(BAR)
     by_id = {t["id"]: t for t in tasks}
     agg = collections.defaultdict(lambda: [0, 0, 0])
@@ -129,16 +135,18 @@ def main():
     for e in final:
         key = by_id.get(e["task_id"], {}).get("subtask") or e.get("family", "?")
         agg[key][1] += int(e["reward"] == 1)
-    print(f"  {'subtask':46} {'H0':>6} {'H*':>6} {'题数':>5}")
+    print(f"  {'subtask':46} {'H0':>6} {'H*':>6} {'tasks':>5}")
     for key, (h0, hs, n) in sorted(agg.items(), key=lambda kv: -(kv[1][1] - kv[1][0])):
         print(f"  {key[:46]:46} {h0:6} {hs:6} {n:5}")
 
-    # ---- 中间步骤的免费测量 --------------------------------------------
-    # phase.py 每步开头用的是上一步选中的 harness，所以 step-N/interaction
-    # 跑的是 H(N-1)。题目每步不同（cursor 往后滚），准确率不可比，但能看出
-    # 各子任务在哪一代出现、表现如何 —— 不用重跑就能定位改进发生在哪一步。
+    # ---- Free measurements from the intermediate steps ------------------
+    # phase.py begins each step with the harness selected at the previous step, so
+    # step-N/interaction runs H(N-1). The tasks differ from step to step (the cursor
+    # rolls forward), so the accuracies are not comparable, but it does show which
+    # generation each subtask appears in and how it does there -- locating which step
+    # an improvement happened at, without rerunning anything.
     print("\n" + BAR)
-    print("train 交互按 subtask（step-N/interaction 跑的是 H(N-1)）")
+    print("train interaction by subtask (step-N/interaction runs H(N-1))")
     print(BAR)
     steps = sorted(root.glob("step-*"))
     seen = set()
@@ -155,7 +163,7 @@ def main():
             seen.add(key)
         table[f"H{i}"] = counter
     if not table:
-        print("  （没有 interaction 数据）")
+        print("  (no interaction data)")
         return
     names = sorted(seen)
     header = "  " + f"{'subtask':44}" + "".join(f"{k:>10}" for k in table)
@@ -167,8 +175,11 @@ def main():
             cells += f"{(f'{got}/{n}' if n else '-'):>10}"
         print(f"  {name[:44]:44}{cells}")
     target = [n for n in names if n in {t.get('subtask') for t in tasks if t['split'] == 'test'}]
-    print(f"\n  与 test 共有的 subtask: {target or '无'}")
-    print("  题目每步不同，准确率不可直接比；看的是某类题在哪一代开始出现、做对没有。")
+    print(f"\n  subtasks shared with test: {target or 'none'}")
+    print("  The tasks differ at every step, so the accuracies cannot be compared "
+          "directly; what this")
+    print("  shows is which generation a class of task first appears in and whether it "
+          "was answered correctly.")
 
 
 if __name__ == "__main__":

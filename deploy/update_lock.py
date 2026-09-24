@@ -1,4 +1,4 @@
-"""用真实数据湖重写 environment.lock.json。"""
+"""Rewrite environment.lock.json from the actual data lake."""
 import argparse, hashlib, json
 from pathlib import Path
 
@@ -26,8 +26,8 @@ lock["data_lake"] = {
     "files": files,
 }
 lock["runtime"] = {"kind": "apptainer", "definition": "deploy/runtime.def",
-                   "mounts": {"/workspace": "每 episode 的私有工作区",
-                              "/opt/scitrace": "TOOLS.md 与 DATA.md",
-                              "/opt/data/biomni_data/data_lake": "release 的 resources/，只读"}}
+                   "mounts": {"/workspace": "per-episode private workspace",
+                              "/opt/scitrace": "TOOLS.md and DATA.md",
+                              "/opt/data/biomni_data/data_lake": "the release resources/ directory, read-only"}}
 (REL / "environment.lock.json").write_text(json.dumps(lock, indent=2, ensure_ascii=False) + "\n")
-print("  数据湖 %d 个文件 %.1f GB  digest %s" % (len(files), total / 1e9, lock["data_lake"]["digest"][:16]))
+print("  data lake: %d files, %.1f GB, digest %s" % (len(files), total / 1e9, lock["data_lake"]["digest"][:16]))

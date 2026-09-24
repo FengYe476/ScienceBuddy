@@ -14,9 +14,10 @@ from simple_scibuddy.artifacts import ROOT, digest, file_digest, tree_identity, 
 def build_overrides(cfg, mode, run, training_data, data):
     """Translate effective settings without importing SkyRL or touching devices."""
     overrides = json.loads((ROOT / "configs/skyrl.json").read_text())
-    # skyrl.json 按 8 卡写死；按实际可见卡数覆盖，让同一份配置能在 4 卡节点上跑。
-    # colocate_all=true，所以策略、参考模型和推理引擎共享这批卡；GRPO 无 critic，
-    # 但 SkyRL 仍读取该字段，一并对齐以免放置阶段报不一致。
+    # skyrl.json hardcodes 8 GPUs; override from the actual visible device count so the same
+    # configuration runs on a 4-GPU node. colocate_all=true, so the policy, the reference model
+    # and the inference engines share those devices. GRPO has no critic, but SkyRL still reads
+    # the field, so it is set consistently to avoid a placement mismatch.
     if cfg.get("devices"):
         overrides.update(
             {
@@ -27,11 +28,13 @@ def build_overrides(cfg, mode, run, training_data, data):
             }
         )
         if cfg["devices"] < 8:
-            # 卡数减半，每张卡的 FSDP 分片与优化器状态翻倍。上游 0.65 给 vLLM
-            # 预留 80 GB 中的 52 GB，而 max_num_seqs=1 只需要一条 24K 序列的
-            # KV cache（4B 模型约 3.6 GB），预留量本就过剩 14 倍。降到 0.45
-            # 仍有 10 倍余量，腾出的约 16 GB 留给训练状态，避免 colocate_all
-            # 下的 OOM。不影响生成确定性：温度 0、单序列，与缓存大小无关。
+            # Halving the device count doubles each GPU's FSDP shard and optimizer state.
+            # Upstream's 0.65 reserves 52 GB of an 80 GB card for vLLM, while max_num_seqs=1
+            # needs KV cache for a single 24K sequence (about 3.6 GB for a 4B model) -- a 14x
+            # over-reservation. Dropping to 0.45 still leaves 10x headroom and frees roughly
+            # 16 GB for training state, avoiding OOM under colocate_all. Generation
+            # determinism is unaffected: temperature 0 and one sequence at a time do not
+            # depend on cache size.
             overrides["generator.inference_engine.gpu_memory_utilization"] = 0.45
     overrides.update(
         {
@@ -89,11 +92,13 @@ def launch(cfg, mode, resume=None, validate_only=False):
     import psutil
     from skyrl.train.config.config import overrides_dict_to_dotlist
 
-    # 上游硬性要求恰好 8 卡。Anvil 全集群每节点只有 4 张 GPU（ai/gpu/gpu-debug
-    # 分区的 Gres 都是 gpu:4），该约束在那里永远无法满足。放宽为 2 的幂，并把
-    # 实际卡数传给 build_overrides 覆盖 skyrl.json 里写死的 8。
-    # 算法不受影响：有效 batch 由 trainer.train_batch_size / policy_mini_batch_size
-    # 决定（见 build_overrides），与卡数无关；卡少只是梯度累积步数翻倍、吞吐下降。
+    # Upstream requires exactly eight GPUs. Every node on Anvil has only four (the ai, gpu and
+    # gpu-debug partitions all report Gres=gpu:4), so that constraint can never be satisfied
+    # there. Relaxed to powers of two, with the actual device count passed to build_overrides
+    # to override the 8 hardcoded in skyrl.json. The algorithm is unaffected: the effective
+    # batch is set by trainer.train_batch_size and policy_mini_batch_size (see
+    # build_overrides) independently of device count. Fewer devices only doubles gradient
+    # accumulation and lowers throughput.
     selected = [d for d in os.environ.get("CUDA_VISIBLE_DEVICES", "").split(",") if d.strip()]
     devices = len(set(selected))
     if devices != len(selected) or devices not in (1, 2, 4, 8):

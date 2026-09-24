@@ -30,9 +30,10 @@ def public_capabilities(environment):
             import pyarrow.parquet as pq
             item.update(format='parquet', reader='pandas.read_parquet', columns=pq.read_schema(path).names)
         elif name.endswith('.pkl'):
-            # 上游假定每个 .pkl 都反序列化成带 .columns 的 DataFrame。Biomni 数据湖里
-            # 有 list 和 dict（enamine_cloud_library_smiles / txgnn_*），会在这里抛
-            # AttributeError，而且发生在 phase.py:190，harness 阶段第一步之前。
+            # Upstream assumes every .pkl unpickles to a DataFrame with .columns. The Biomni
+            # data lake also contains lists and dicts (enamine_cloud_library_smiles,
+            # txgnn_*), which raise AttributeError here -- at phase.py:190, before the first
+            # harness step even starts.
             import pandas as pd
             value = pd.read_pickle(path)
             item.update(format='trusted frozen pandas pickle', reader='pandas.read_pickle')

@@ -1,15 +1,18 @@
-# Harness-only reproduction on the small profile (200/30/30).
+# Harness-only reproduction against the id200-val30-test30-v2 release.
 #
-#   bash deploy/run.sh configs/h-only-small.toml
+#   bash deploy/start_run.sh configs/h-only-v2.toml id200-val30-test30-v2 id200-val30-test30-v1
 #
-# The V=10/T=10 round concluded that the entire gain came from recovering completion while
-# per-attempt accuracy stayed flat, but at n=10 the resolution is only 10 percentage points.
-# This round raises val and test to 30 to test whether that conclusion was just invisible.
-#
-# Three settings differ from configs/h-only.toml; everything else is kept identical so the
-# two rounds stay comparable.
+# v2 differs from v1 only in how the 260 tasks are split; the source data, the family
+# proportions and every budget below are unchanged. The v1 split let split_by_group hand
+# whole subtasks to one split, so val and test stopped measuring the same thing:
+#   - val was 17/17 variant_from_sequence, test was 15/17 vax_response
+#   - "always pick the longest option" scored 60% on val and 20% on test
+#   - the improver never saw a single example of the two subtasks that produced 16 of the
+#     18 tasks gained on test
+# v2 deals whole source_groups stratified by (subtask, is-the-correct-option-longest), so
+# all three splits carry the same subtask mix and the same length bias.
 mode = "harness_evolve"
-experiment = "../runs/h-only-small-01"
+experiment = "../runs/h-only-v2"
 
 [model]
 mode = "train"
@@ -26,13 +29,13 @@ workers = 16
 feedback_every = 16               # upstream default; train has 200 tasks so 3 x 16 = 48 does not wrap
 # preflight_task_id omitted: phase.py:187 falls back to train[0]. A hardcoded ID belongs to
 # one release's train split and trips "Preflight task must belong to training split" after a
-# profile change.
+# release change.
 steps_per_phase = 3
 user_turns = 1
 actions = 9
 max_tokens = 4096
 context_tokens = 24576
-seed = 20260911                   # matches SPLIT_SEED in adapter/config.py
+seed = 20260911                   # same SPLIT_SEED the release was built with
 tool_response_tokens = 2048
 tool_history_tokens = 8192
 

@@ -1,4 +1,7 @@
-"""从 Biomni 的文件描述 + 实际文件结构生成 DATA.md（容器内模型看到的数据字典）。"""
+"""Generate DATA.md from Biomni file descriptions plus the actual file structure.
+
+This is the data dictionary the model sees inside the container.
+"""
 import argparse, csv, json
 from pathlib import Path
 
@@ -34,7 +37,7 @@ for path in sorted(LAKE.iterdir()):
             v = json.loads(path.read_text())
             cols = ", ".join(sorted(v)[:14]) if isinstance(v, dict) else "array"
     except Exception as exc:
-        cols = "(读取失败: %s)" % type(exc).__name__
+        cols = "(read failed: %s)" % type(exc).__name__
     rows.append((name, size, desc.get(name, ""), cols))
 
 out = ["# Data lake", "", "Read-only at `/opt/data/biomni_data/data_lake`.",
@@ -50,4 +53,4 @@ for name, size, d, cols in rows:
         out += ["", "Columns: " + cols]
     out.append("")
 Path(a.out).write_text("\n".join(out))
-print("  DATA.md: %d 个文件条目" % len(rows))
+print("  DATA.md: %d file entries" % len(rows))

@@ -1,18 +1,18 @@
-"""在任意机器上确定性重建 frozen task release（不依赖 adapter/）。
+"""Deterministically rebuild the frozen task release on any machine (no adapter/ needed).
 
-源数据与论文 Table S1 的对应（已核对）：
+How the sources line up with the paper's Table S1 (verified):
 
-    任务族        论文   源                                     差异
-    DbQA          511    futurehouse/lab-bench DbQA       520    -9
-    GWAS          180    biomni/Eval1 四个 gwas_* 任务     193   -13
-    ProtocolQA    108    futurehouse/lab-bench ProtocolQA 108   一致
-    LitQA2         96    futurehouse/lab-bench LitQA2     199  -103
+    family        paper  source                                    difference
+    DbQA          511    futurehouse/lab-bench DbQA          520    -9
+    GWAS          180    biomni/Eval1, the four gwas_* tasks 193   -13
+    ProtocolQA    108    futurehouse/lab-bench ProtocolQA    108   same
+    LitQA2         96    futurehouse/lab-bench LitQA2        199  -103
 
-DbQA 的 10 个 subtask 与论文 Table S1 的 10 个子主题逐一对应。我们按同样的族
-比例缩放，不追求数量完全相同。
+The ten DbQA subtasks correspond one-to-one with the ten subtopics in Table S1. Family
+proportions are scaled the same way; exact counts are not matched.
 
-所有随机性都由 seed 决定，且 rng 的消耗顺序固定（DbQA -> LitQA2 -> ProtocolQA），
-所以同一 seed 在任何机器上产出逐字节相同的 release。
+All randomness is determined by the seed, and the rng is consumed in a fixed order
+(DbQA -> LitQA2 -> ProtocolQA), so one seed produces a byte-identical release anywhere.
 
     python deploy/build_release.py --out data/releases/id40-val10-test10-v1
 """
@@ -33,7 +33,7 @@ SPLIT_SEED = 20260911
 FAMILY_WEIGHTS = {"DbQA": 511, "GWAS": 180, "ProtocolQA": 108, "LitQA2": 96}
 PROFILES = {"debug": (40, 10, 10), "small": (200, 30, 30), "full": (715, 90, 90)}
 LAKE_DIRNAME = "resources"
-# data/verifier.py:25 对这个 subtask 走大小写敏感的精确匹配，名字必须一字不差
+# data/verifier.py:25 uses case-sensitive exact matching for this subtask, so the name must match exactly
 CASE_SENSITIVE_SUBTASK = "gwas_variant_prioritization"
 PROMPT_TOKEN_LIMIT = 24576 - 4096
 
@@ -71,28 +71,29 @@ def load_sources(cache):
         if local.exists():
             frames[sub] = pd.read_parquet(local)
         else:
-            print(f"  下载 LAB-Bench/{sub} ...", flush=True)
+            print(f"  downloading LAB-Bench/{sub} ...", flush=True)
             frame = pd.read_parquet(LAB_BENCH.format(sub=sub))
             frame.to_parquet(local)
             frames[sub] = frame
-        print(f"    {sub:12} {len(frames[sub]):5} 条")
+        print(f"    {sub:12} {len(frames[sub]):5} rows")
     local = cache / "biomni-eval1.parquet"
     if local.exists():
         frames["Eval1"] = pd.read_parquet(local)
     else:
-        print("  下载 biomni/Eval1 ...", flush=True)
+        print("  downloading biomni/Eval1 ...", flush=True)
         frame = pd.read_parquet(EVAL1)
         frame.to_parquet(local)
         frames["Eval1"] = frame
-    print(f"    {'Eval1':12} {len(frames['Eval1']):5} 条")
+    print(f"    {'Eval1':12} {len(frames['Eval1']):5} rows")
     return frames
 
 
 def make_choice_task(row, family, subtask, source_group, rng, *, extra_prompt="", assets=None):
-    """ideal + distractors -> 打乱后的选项；参考答案必须是字母。
+    """ideal + distractors -> shuffled options; the reference answer must be a letter.
 
-    data/verifier.py 会把模型答案归一化成字母（"B" / "B. text" / 选项原文都认），
-    参考答案写选项原文会全判错。
+    data/verifier.py normalizes the model's answer to a letter (it accepts "B", "B. text" and
+    the option text itself). Storing the option text as the reference answer would mark every
+    task wrong.
     """
     ideal = str(row["ideal"]).strip()
     options = [str(d).strip() for d in list(row["distractors"])] + [ideal]
@@ -134,7 +135,7 @@ def convert_litqa2(frame, rng):
     for _, row in frame.iterrows():
         sources = list(row["sources"]) if row["sources"] is not None else []
         group = f"litqa2:{sources[0]}" if sources else f"litqa2:{row['id']}"
-        # key-passage 是答案线索，绝不进公开 prompt
+        # The key passage is an answer clue and must never enter the public prompt
         public, reference, group, assets = make_choice_task(
             row, "LitQA2", "scientific_literature_reading", group, rng)
         out.append((str(row["id"]), public, reference, group, assets))
@@ -157,7 +158,7 @@ def convert_protocolqa(frame, rng):
 
 
 def convert_gwas(frame):
-    """Eval1 的 GWAS 是自由作答（基因名 / rsID），没有选项。"""
+    """Eval1 GWAS tasks are free-form (gene name / rsID) and have no options."""
     out = []
     subset = frame[frame["task_name"].isin(GWAS_TASKS)]
     for _, row in subset.iterrows():
@@ -267,14 +268,14 @@ def build(out_root, profile, seed, cache):
     train_n, val_n, test_n = PROFILES[profile]
     sizes = {"train": train_n, "val": val_n, "test": test_n}
     total = sum(sizes.values())
-    print(f"目标 {out_root}\n规格 train={train_n} val={val_n} test={test_n} 共 {total}\n种子 {seed}\n")
+    print(f"target {out_root}\nspec train={train_n} val={val_n} test={test_n}, {total} total\nseed {seed}\n")
 
-    print("读取源数据")
+    print("reading sources")
     frames = load_sources(cache)
 
-    # rng 的消耗顺序必须固定，否则跨机器结果不一致
+    # The rng consumption order must stay fixed or results differ across machines
     rng = random.Random(seed)
-    print("\n转换")
+    print("\nconverting")
     pools = {
         "DbQA": convert_dbqa(frames["DbQA"], rng),
         "LitQA2": convert_litqa2(frames["LitQA2"], rng),
@@ -282,14 +283,14 @@ def build(out_root, profile, seed, cache):
         "GWAS": convert_gwas(frames["Eval1"]),
     }
     for family, items in pools.items():
-        print(f"  {family:12} 可用 {len(items):5} 条")
+        print(f"  {family:12} {len(items):5} usable")
 
     quota = allocate(total, FAMILY_WEIGHTS)
-    print("\n按论文族比例分配")
+    print("\nallocating by the paper's family proportions")
     for family, n in quota.items():
         if n > len(pools[family]):
-            raise SystemExit(f"{family} 需要 {n} 条但只有 {len(pools[family])} 条")
-        print(f"  {family:12} {n:5} 条")
+            raise SystemExit(f"{family} needs {n} rows but only {len(pools[family])} are available")
+        print(f"  {family:12} {n:5} rows")
 
     selected = {f: sorted(pools[f], key=lambda x: stable_key(seed, x[0]))[:n]
                 for f, n in quota.items()}
@@ -308,11 +309,11 @@ def build(out_root, profile, seed, cache):
                 assignments[item[0]] = (split, family, item)
 
     if out_root.exists():
-        print(f"\n清除已有目录 {out_root}")
+        print(f"\nremoving existing directory {out_root}")
         shutil.rmtree(out_root)
     out_root.mkdir(parents=True)
 
-    print("\n写入任务")
+    print("\nwriting tasks")
     rows, long_prompts = [], []
     for source_id, (split, family, item) in sorted(assignments.items()):
         _, public, reference, group, assets = item
@@ -323,7 +324,7 @@ def build(out_root, profile, seed, cache):
         write_json(directory / "evaluator/reference.json", reference)
         asset_dir = directory / "public/assets"
         asset_dir.mkdir(parents=True, exist_ok=True)
-        # 上游 task policy 约定：完整任务文本在 /workspace/assets/task_prompt.txt
+        # The upstream task policy promises the full task text at /workspace/assets/task_prompt.txt
         (asset_dir / "task_prompt.txt").write_text(public["prompt"] + "\n")
         for name, content in assets.items():
             (asset_dir / name).write_text(content)
@@ -334,8 +335,8 @@ def build(out_root, profile, seed, cache):
     lake = out_root / LAKE_DIRNAME
     lake.mkdir()
     (lake / "README.md").write_text(
-        "# 公开数据湖\n\ndeploy/bootstrap.sh 会用 Biomni 的 data_lake 填充本目录，"
-        "并重写 environment.lock.json 的 data_lake.files。\n")
+        "# Public data lake\n\ndeploy/bootstrap.sh fills this directory from Biomni's data_lake "
+        "and rewrites data_lake.files in environment.lock.json.\n")
     files = {"README.md": {"sha256": sha256_file(lake / "README.md")}}
     write_json(out_root / "environment.lock.json", {
         "image": "apptainer:runtime.sif",
@@ -358,12 +359,12 @@ def build(out_root, profile, seed, cache):
                         "ProtocolQA": "futurehouse/lab-bench ProtocolQA",
                         "GWAS": "biomni/Eval1 gwas_* tasks"},
             "seed": seed, "profile": profile, "family_weights": FAMILY_WEIGHTS,
-            "note": "族比例按论文 Table S1 缩放；数量不与论文逐项相同。"
-                    "划分按 source_group 整组进行以减少材料泄漏。",
+            "note": "Family proportions are scaled from the paper's Table S1; counts are not matched "
+                    "item by item. Splits are dealt whole source_groups to limit material leakage.",
         },
     })
 
-    print(f"\n完成：{len(rows)} 个任务")
+    print(f"\ndone: {len(rows)} tasks")
     for split in ("train", "val", "test"):
         members = [r for r in rows if r["split"] == split]
         per = defaultdict(int)
@@ -374,24 +375,24 @@ def build(out_root, profile, seed, cache):
     by_split = defaultdict(set)
     for r in rows:
         by_split[r["split"]].add(r["source_group"])
-    print("\n材料组重叠（越少越好）")
-    print(f"  Train-Val   {len(by_split['train'] & by_split['val'])} 组   (论文 20)")
-    print(f"  Train-Test  {len(by_split['train'] & by_split['test'])} 组   (论文 18)")
+    print("\nmaterial-group overlap (lower is better)")
+    print(f"  Train-Val   {len(by_split['train'] & by_split['val'])} groups   (paper: 20)")
+    print(f"  Train-Test  {len(by_split['train'] & by_split['test'])} groups   (paper: 18)")
 
     identity = hashlib.sha256(
         json.dumps({r["id"]: r for r in rows}, sort_keys=True).encode()).hexdigest()
-    print(f"\n任务集指纹 {identity[:16]}   （用于核对不同机器上重建是否一致）")
+    print(f"\ntask-set fingerprint {identity[:16]}   (compare across machines to confirm an identical rebuild)")
     if long_prompts:
-        print(f"\n注意 {len(long_prompts)} 个任务 prompt 可能超预算，用 --check-prompt-budget 精确核对")
+        print(f"\nnote: {len(long_prompts)} task prompts may exceed the budget; use --check-prompt-budget to verify exactly")
     return out_root
 
 
 def main():
-    ap = argparse.ArgumentParser(description="确定性重建 frozen task release")
+    ap = argparse.ArgumentParser(description="Deterministically rebuild the frozen task release")
     ap.add_argument("--out", required=True)
     ap.add_argument("--profile", default="debug", choices=sorted(PROFILES))
     ap.add_argument("--seed", type=int, default=SPLIT_SEED)
-    ap.add_argument("--cache", default=None, help="源 parquet 缓存目录")
+    ap.add_argument("--cache", default=None, help="cache directory for the source parquet files")
     args = ap.parse_args()
     out = Path(args.out).resolve()
     cache = Path(args.cache) if args.cache else out.parent / ".sources"

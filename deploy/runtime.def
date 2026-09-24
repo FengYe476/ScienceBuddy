@@ -5,7 +5,7 @@ From: python:3.12-slim
     set -eux
     apt-get update && apt-get install -y --no-install-recommends \
         build-essential ca-certificates && rm -rf /var/lib/apt/lists/*
-    # coevolve/capabilities.py:60 声明的库清单
+    # The library list declared in coevolve/capabilities.py:60
     pip install --no-cache-dir \
         numpy pandas pyarrow biopython requests beautifulsoup4 scipy
     apt-get purge -y build-essential && apt-get autoremove -y

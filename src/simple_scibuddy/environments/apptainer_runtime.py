@@ -1,22 +1,25 @@
-"""Apptainer 实现的容器后端，用于没有 Docker 的 HPC 环境。
+"""Apptainer container backend for HPC environments without Docker.
 
-与 environments/runtime.py:Container 同接口（start / send / receive / execute /
-collect / close / closed_stream），协议完全一致，所以 broker.py、phase.py、
-training/generator.py 都不需要改动。
+Same interface as environments/runtime.py:Container (start / send / receive /
+execute / collect / close / closed_stream) and the same wire protocol, so
+broker.py, phase.py and training/generator.py need no changes.
 
-对齐上游 Docker 实现的三点：
-  * bind mount 做出 harness/scientific.py:SYSTEM 承诺的绝对路径
-    /workspace/assets、/opt/scitrace、/opt/data/biomni_data/data_lake
-  * `unshare -rn` 提供网络隔离，errno 101 (ENETUNREACH)，与 `docker --network none` 一致
-  * 8 MiB 超长协议记录的丢弃语义（runtime.py:99-125）
+Three things are kept aligned with the upstream Docker implementation:
+  * bind mounts recreate the absolute paths promised by
+    harness/scientific.py:SYSTEM -- /workspace/assets, /opt/scitrace and
+    /opt/data/biomni_data/data_lake
+  * `unshare -rn` provides network isolation with errno 101 (ENETUNREACH),
+    matching `docker --network none`
+  * the discard semantics for protocol records over 8 MiB (runtime.py:99-125)
 
-已知偏差（见 adapter/DEVIATIONS.md）：
-  * 无 `--memory 16g` cgroup 限制，因此不产生 execution_memory_budget 停止原因；
-    作业级内存由 Slurm 约束。
+Known deviation (see adapter/DEVIATIONS.md):
+  * no `--memory 16g` cgroup limit, so the cgroup path to the
+    execution_memory_budget stop reason does not exist; job-level memory is
+    bounded by Slurm instead.
 
-通过环境变量选择：
-    SCIBUDDY_RUNTIME=apptainer       启用本后端（runtime.py 据此切换 Container）
-    SCIBUDDY_SCITRACE=<dir>          bind 到 /opt/scitrace 的目录
+Selected through environment variables:
+    SCIBUDDY_RUNTIME=apptainer   enable this backend (runtime.py switches Container on it)
+    SCIBUDDY_SCITRACE=<dir>      directory bind-mounted at /opt/scitrace
 """
 
 import asyncio
@@ -31,12 +34,14 @@ from simple_scibuddy.environments.runtime import ControllerFailure, ExecutionMem
 
 
 class ApptainerMemoryBudget(ExecutionMemoryBudget):
-    """与上游同类型（broker.py:126 按 ExecutionMemoryBudget 捕获），但消息属实。
+    """Same type as upstream (broker.py:126 catches ExecutionMemoryBudget), truthful message.
 
-    上游 runtime.py:18 把消息写死成 "16 GiB ... (Docker OOMKilled)"。这条文本会
-    作为工具观测进入模型上下文，并经 evidence.py:public_evidence 成为 improver
-    的诊断证据 —— 在本 fork 里它三处都不对：没有 Docker、限制是 RLIMIT_AS 而非
-    cgroup、数值是 32 GiB 而非 16 GiB。照抄会让 improver 据假前提改 harness。
+    Upstream runtime.py:18 hardcodes "16 GiB ... (Docker OOMKilled)". That text reaches the
+    model as a tool observation and then becomes improver diagnostic evidence through
+    evidence.py:public_evidence. In this fork it is wrong in three ways: there is no Docker,
+    the limit comes from RLIMIT_AS rather than a cgroup, and the number is 32 GiB rather than
+    16 GiB. Passing it through unchanged would have the improver revise the harness on a
+    false premise.
     """
 
     def __init__(self, state, cap_bytes):
@@ -52,17 +57,18 @@ GUEST_WORKSPACE = "/workspace"
 GUEST_SCITRACE = "/opt/scitrace"
 GUEST_LAKE = "/opt/data/biomni_data/data_lake"
 
-# 两侧都先把协议通道 dup 到私有 fd，再把 sys.stdin/stdout 换成安全替身。
-# 被执行的代码（harness 程序、模型生成的工具代码）因此无法关闭或消费协议流。
-# 不做这一步时，一段 input()/sys.stdout.close() 就会让容器以 returncode 1 退出，
-# 进而触发 closed_stream 的 RuntimeError，炸掉整个 TaskGroup。
+# Both sides dup the protocol channel onto private file descriptors first, then replace
+# sys.stdin/sys.stdout with harmless stand-ins. Executed code -- the harness program and any
+# tool code the model generates -- therefore cannot close or consume the protocol stream.
+# Without this, a single input() or sys.stdout.close() makes the container exit with
+# returncode 1, which raises RuntimeError from closed_stream and tears down the TaskGroup.
 CHANNEL_PRELUDE = '''
 import io, json, os, sys
 
 _pin = os.fdopen(os.dup(0), "r")
 _pout = os.fdopen(os.dup(1), "w")
-sys.stdin = io.StringIO("")          # 用户代码读不到协议输入
-sys.stdout = io.StringIO()           # 误用的 print 落进废纸篓而非协议流
+sys.stdin = io.StringIO("")          # user code cannot read the protocol input
+sys.stdout = io.StringIO()           # stray print() goes to a sink, not the protocol stream
 
 
 def _emit(value):
@@ -101,14 +107,16 @@ if __name__ == "__main__":
         _emit({"op": "error", "error": traceback.format_exc()})
 '''
 
-# 执行容器侧的常驻 REPL。上游把它烤在 release 镜像里，仓库中没有；
-# 协议按 runtime.py:74-77 的期望：读 {"code": ...}，回 {"stdout", "error"}。
+# The persistent REPL on the execution-container side. Upstream bakes this into the release
+# image and it is not in the repository; the protocol follows what runtime.py:74-77 expects:
+# read {"code": ...}, reply {"stdout", "error"}.
 REPL_SOURCE = CHANNEL_PRELUDE + '''
 import contextlib, resource, traceback
 
-# 对齐 Docker 的 --memory 16g（见 upstream runtime.py:57）。RLIMIT_AS 限制的是
-# 虚拟地址空间而非 RSS，所以放宽到 32 GiB：目的是让失控分配抛出可捕获的
-# MemoryError，而不是被内核 OOM-kill 掉整个容器（那会丢掉整轮实验）。
+# Stands in for Docker's --memory 16g (see upstream runtime.py:57). RLIMIT_AS bounds virtual
+# address space rather than RSS, so it is loosened to 32 GiB: the goal is for a runaway
+# allocation to raise a catchable MemoryError instead of having the kernel OOM-kill the whole
+# container, which would lose the entire round.
 try:
     _cap = int(os.environ.get("SCIBUDDY_MEM_BYTES", str(32 * 1024 ** 3)))
     resource.setrlimit(resource.RLIMIT_AS, (_cap, _cap))
@@ -135,8 +143,8 @@ for line in _pin:
         except BaseException:
             error = "Tool raised an exception that could not be formatted."
     try:
-        # 代码可能把 redirect 用的缓冲区关掉（sys.stdout.close()），
-        # 此时 getvalue() 会抛 ValueError —— 不能让它中断循环。
+        # The code may have closed the redirect buffer (sys.stdout.close()), in which case
+        # getvalue() raises ValueError -- that must not break the loop.
         out = buffer.getvalue()
     except BaseException:
         out = ""
@@ -144,7 +152,7 @@ for line in _pin:
     try:
         _emit({"stdout": out, "error": error})
     except BaseException:
-        break                         # 只有协议流真的断了才退出循环
+        break                         # only leave the loop if the protocol stream is truly gone
 '''
 
 
@@ -153,7 +161,7 @@ def runtime_binary():
 
 
 def _network_isolation():
-    """`unshare -rn` 在用户命名空间里断网，非特权可用，errno 与 Docker 一致。"""
+    """`unshare -rn` drops networking in a user namespace: unprivileged, same errno as Docker."""
     if not shutil.which("unshare"):
         return []
     try:
@@ -176,12 +184,12 @@ class ApptainerContainer:
         self.workspace = None
         self.runtime = runtime_binary()
         if not self.runtime:
-            raise ControllerFailure("找不到 apptainer/singularity")
+            raise ControllerFailure("apptainer/singularity not found")
         candidate = Path(str(image).replace("apptainer:", "", 1))
         if not candidate.is_absolute():
             candidate = Path.cwd() / candidate
         if not candidate.is_file():
-            raise ControllerFailure(f"镜像不存在: {candidate}")
+            raise ControllerFailure(f"image does not exist: {candidate}")
         self.sif = candidate
 
     def _argv(self, script, harness_target):
@@ -217,7 +225,7 @@ class ApptainerContainer:
         harness_target = None
         if self.kind == "controller":
             if harness is None:
-                raise ControllerFailure("controller 需要 harness 程序")
+                raise ControllerFailure("the controller requires a harness program")
             harness_target = scripts / "harness.py"
             shutil.copyfile(harness, harness_target)
             script = scripts / "controller.py"
@@ -276,13 +284,15 @@ class ApptainerContainer:
                 return value
 
     async def closed_stream(self, cause=None):
-        """对齐 runtime.py:126-138 的分流，但用可观测的证据代替 docker inspect。
+        """Mirrors the triage in runtime.py:126-138, using observable evidence instead of
+        docker inspect.
 
-        上游只把确认的内存耗尽降级成单题失败，其他容器死亡一律中止实验
-        （"unknown transport/daemon failures still abort"）。Apptainer 非特权
-        模式设不了 cgroup，拿不到 OOMKilled 标志，所以改用退出码判断：
-        被信号杀死（128+N，OOM-kill 是 137）视为资源耗尽，可恢复；其余
-        仍然当作基础设施故障上抛。
+        Upstream downgrades only a confirmed memory exhaustion to a single-task failure and
+        aborts the experiment on any other container death ("unknown transport/daemon failures
+        still abort"). Unprivileged Apptainer cannot set a cgroup, so there is no OOMKilled
+        flag to read; the exit code is used instead. Death by signal (128+N, and OOM-kill is
+        137) counts as resource exhaustion and is recoverable; everything else is still raised
+        as an infrastructure failure.
         """
         self.folder.mkdir(parents=True, exist_ok=True)
         code = self.process.returncode if self.process else None
@@ -301,7 +311,7 @@ class ApptainerContainer:
             cap = int(os.environ.get("SCIBUDDY_MEM_BYTES", str(32 * 1024**3)))
             raise ApptainerMemoryBudget(state, cap) from cause
         error = ControllerFailure if self.kind == "controller" else RuntimeError
-        raise error(f"{self.kind} 容器流已关闭; state={state}") from cause
+        raise error(f"{self.kind} container stream closed; state={state}") from cause
 
     async def execute(self, code, timeout=120):
         try:
