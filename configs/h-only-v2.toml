@@ -12,20 +12,20 @@
 # v2 deals whole source_groups stratified by (subtask, is-the-correct-option-longest), so
 # all three splits carry the same subtask mix and the same length bias.
 mode = "harness_evolve"
-experiment = "../runs/h-only-v2"
+experiment = "../runs/h-only-v2-02"
 
 [model]
 mode = "train"
 steps = 30
 checkpoint_interval = 0
 eval_interval = 30
-concurrency = 16
+concurrency = 4
 tool_seconds = 60
 
 [harness_evolve]
 selection_tasks = 30              # must equal the val split size (phase.py:126-127 enforces it)
 candidates = 3
-workers = 16
+workers = 4
 feedback_every = 16               # upstream default; train has 200 tasks so 3 x 16 = 48 does not wrap
 # preflight_task_id omitted: phase.py:187 falls back to train[0]. A hardcoded ID belongs to
 # one release's train split and trips "Preflight task must belong to training split" after a
