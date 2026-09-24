@@ -217,6 +217,33 @@ def main():
     steps = sorted(root.glob("step-*"))
     print(f"实验 {root}，共 {len(steps)} 步\n")
 
+    # 进度：实验跑到一半时，下面各段的分母是"目前为止"，不是最终值
+    stages = [("initial-preflight", root / "initial-preflight"), ("baseline", root / "baseline")]
+    for step in steps:
+        stages.append((f"{step.name}/interaction", step / "interaction"))
+        for cand in sorted(step.glob("candidate-*")):
+            stages.append((f"{step.name}/{cand.name}/preflight", cand / "preflight"))
+        stages.append((f"{step.name}/validation-parent", step / "validation-parent"))
+        for cand in sorted(step.glob("validation-[0-9][0-9]")):
+            stages.append((f"{step.name}/{cand.name}", cand))
+        stages.append((f"{step.name}/evaluation", step / "evaluation"))
+
+    print(BAR)
+    print("进度")
+    print(BAR)
+    done = 0
+    active = None
+    for label, folder in stages:
+        eps = load(folder) if folder.is_dir() else []
+        if not eps:
+            continue
+        done += len(eps)
+        correct = sum(e["reward"] == 1 for e in eps)
+        active = label
+        print(f"  {pad(label, 34)}{len(eps):4} 题   正确 {correct}")
+    print(f"\n  已完成 {done} 个 episode（预计 478）   当前阶段 {active or '尚未开始'}")
+    print("  注：实验未结束时，下面每段的分母是目前为止的题数\n")
+
     baseline = load(root / "baseline")
     report("H0 基线（test 集）", baseline)
 
