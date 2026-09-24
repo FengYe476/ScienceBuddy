@@ -133,6 +133,43 @@ def main():
     for key, (h0, hs, n) in sorted(agg.items(), key=lambda kv: -(kv[1][1] - kv[1][0])):
         print(f"  {key[:46]:46} {h0:6} {hs:6} {n:5}")
 
+    # ---- 中间步骤的免费测量 --------------------------------------------
+    # phase.py 每步开头用的是上一步选中的 harness，所以 step-N/interaction
+    # 跑的是 H(N-1)。题目每步不同（cursor 往后滚），准确率不可比，但能看出
+    # 各子任务在哪一代出现、表现如何 —— 不用重跑就能定位改进发生在哪一步。
+    print("\n" + BAR)
+    print("train 交互按 subtask（step-N/interaction 跑的是 H(N-1)）")
+    print(BAR)
+    steps = sorted(root.glob("step-*"))
+    seen = set()
+    table = {}
+    for i, step in enumerate(steps):
+        eps = episodes(step / "interaction")
+        if not eps:
+            continue
+        counter = collections.defaultdict(lambda: [0, 0])
+        for e in eps:
+            key = by_id.get(e["task_id"], {}).get("subtask") or e.get("family", "?")
+            counter[key][0] += int(e["reward"] == 1)
+            counter[key][1] += 1
+            seen.add(key)
+        table[f"H{i}"] = counter
+    if not table:
+        print("  （没有 interaction 数据）")
+        return
+    names = sorted(seen)
+    header = "  " + f"{'subtask':44}" + "".join(f"{k:>10}" for k in table)
+    print(header)
+    for name in names:
+        cells = ""
+        for counter in table.values():
+            got, n = counter.get(name, [0, 0])
+            cells += f"{(f'{got}/{n}' if n else '-'):>10}"
+        print(f"  {name[:44]:44}{cells}")
+    target = [n for n in names if n in {t.get('subtask') for t in tasks if t['split'] == 'test'}]
+    print(f"\n  与 test 共有的 subtask: {target or '无'}")
+    print("  题目每步不同，准确率不可直接比；看的是某类题在哪一代开始出现、做对没有。")
+
 
 if __name__ == "__main__":
     main()
