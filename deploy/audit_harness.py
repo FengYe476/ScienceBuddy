@@ -54,10 +54,23 @@ def selected_harnesses(root):
 
 # --------------------------------------------------------------- [A] 数据集
 def audit_dataset(release, splits=("val", "test")):
+    """逐 split 分别算，再合并。分开算是必要的：自由作答题无法靠启发式猜中，
+    而两个 split 的选择题/自由作答比例不同，混在一起的平凡基线没法直接拿去
+    和某个 split 上的准确率比较。"""
+    free = []
+    for split in splits:
+        free.extend(audit_one_split(release, split))
+    if len(splits) > 1:
+        audit_one_split(release, splits, label="/".join(splits))
+    return free
+
+
+def audit_one_split(release, split, label=None):
     manifest = json.loads((release / "manifest.json").read_text())
-    rows = [r for r in manifest["tasks"] if r["split"] in splits]
+    wanted = {split} if isinstance(split, str) else set(split)
+    rows = [r for r in manifest["tasks"] if r["split"] in wanted]
     print(BAR)
-    print(f"[A] 数据集可利用偏差   split={'/'.join(splits)}   {len(rows)} 题")
+    print(f"[A] 数据集可利用偏差   split={label or split}   {len(rows)} 题")
     print(BAR)
 
     letters, n_options, longest_hit, first_hit, mcq = (
@@ -99,15 +112,18 @@ def audit_dataset(release, splits=("val", "test")):
     for k, v in sorted(n_options.items()):
         print(f"      {k} 个选项  {v:3} 题")
 
+    total = len(rows)
     uniform = sum(v / k for k, v in n_options.items()) / mcq
-    print(f"\n  平凡基线（不看题也能拿的分）:")
-    print(f"      随机猜（按各题选项数）      {uniform:5.1%}")
     best_letter, best_n = letters.most_common(1)[0]
-    print(f"      永远答最常见字母 {best_letter}          {best_n / mcq:5.1%}"
-          f"   {'<- 显著高于随机，可被利用' if best_n / mcq > uniform + 0.10 else ''}")
-    print(f"      永远选最长的选项            {longest_hit / mcq:5.1%}"
-          f"   {'<- 长度偏差，可被利用' if longest_hit / mcq > uniform + 0.10 else ''}")
-    print(f"      永远选 A                    {first_hit / mcq:5.1%}")
+    print(f"\n  平凡基线（不看题也能拿的分）           选择题内   整个 split")
+    print(f"      随机猜（按各题选项数）        {uniform:8.1%}   {mcq * uniform / total:8.1%}")
+    print(f"      永远答最常见字母 {best_letter}            {best_n / mcq:8.1%}   {best_n / total:8.1%}"
+          f"  {'<- 可被利用' if best_n / mcq > uniform + 0.10 else ''}")
+    print(f"      永远选最长的选项              {longest_hit / mcq:8.1%}   {longest_hit / total:8.1%}"
+          f"  {'<- 长度偏差，可被利用' if longest_hit / mcq > uniform + 0.10 else ''}")
+    print(f"      永远选 A                      {first_hit / mcq:8.1%}   {first_hit / total:8.1%}")
+    print(f"\n  「整个 split」一列把 {len(free_answers)} 道自由作答按 0 分计 —— 启发式猜不中 rsID/基因名。")
+    print("  报告准确率时要和这一列比，不是和「选择题内」比。")
     return free_answers
 
 
