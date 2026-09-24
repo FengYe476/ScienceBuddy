@@ -198,6 +198,58 @@ def transitions(before, after, label_a, label_b):
     print(f"  净增 {net:+d} 题 —— 汇总的准确率差值掩盖了 {tally['变错 --']} 道退步的题\n")
 
 
+def retest(root, steps):
+    """同一份 harness 被重复测量时的漂移 —— 判断 Δ>0 采纳是否有意义的标尺。
+
+    phase.py:264 每步把选中的候选变成下一步的 parent，而 selection.py:30 会在
+    下一步重新完整评测 parent（algorithm.md 明令不得沿用缓存分数）。于是
+    step-N 的 validation-parent 与 step-(N-1) 里被采纳的那个候选，跑的是同一份
+    程序、同一批任务、同样的 temperature 0 与 task seed。两次得分之差即测量噪声。
+
+    用 episode 里的 harness_sha256 核对确实同源，避免把"换了程序"误当成漂移。
+    """
+    rows = []
+    for i in range(1, len(steps)):
+        update = steps[i - 1] / "update.json"
+        if not update.is_file():
+            continue
+        try:
+            picked = json.loads(update.read_text()).get("selected_candidate")
+        except (OSError, ValueError):
+            continue
+        if picked is None:
+            continue
+        before = load(steps[i - 1] / f"validation-{picked:02d}")
+        after = load(steps[i] / "validation-parent")
+        if not before or not after:
+            continue
+        shas = {e.get("harness_sha256") for e in before} | {e.get("harness_sha256") for e in after}
+        same = len(shas) == 1 and None not in shas
+        a = {e["task_id"]: int(e["reward"] == 1) for e in before}
+        b = {e["task_id"]: int(e["reward"] == 1) for e in after}
+        shared = sorted(set(a) & set(b))
+        flips = [t for t in shared if a[t] != b[t]]
+        rows.append((steps[i - 1].name, steps[i].name, picked, sum(a[t] for t in shared),
+                     sum(b[t] for t in shared), len(shared), flips, same, before, after))
+    if not rows:
+        return
+    print(BAR)
+    print("同程序重测漂移（测量噪声的标尺）")
+    print(BAR)
+    worst = 0
+    for s0, s1, picked, x, y, n, flips, same, before, after in rows:
+        tag = "同一份程序 ✓" if same else "!! harness_sha256 不一致，不是同程序"
+        print(f"  {s0}/validation-{picked:02d} -> {s1}/validation-parent   {tag}")
+        print(f"      {x}/{n}  ->  {y}/{n}   差 {y - x:+d} 题；逐题翻转 {len(flips)} 道")
+        worst = max(worst, len(flips))
+        for t in flips[:4]:
+            ea = next(e for e in before if e["task_id"] == t)
+            eb = next(e for e in after if e["task_id"] == t)
+            print(f"        {t:26} {ea['stop_reason']:22} -> {eb['stop_reason']}")
+    print(f"\n  同程序重测最多翻转 {worst} 道题。")
+    print("  selection.py:45 的采纳条件是 Δ>0 —— 小于该漂移量的 Δ 无法与噪声区分。\n")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("run", nargs="?", default="runs/h-only-01", help="实验目录")
@@ -261,6 +313,8 @@ def main():
 
     if baseline and final:
         transitions(baseline, final, "H0", "H*")
+
+    retest(root, steps)
 
     # 进化过程中每一步选择集上的表现
     print(BAR)
