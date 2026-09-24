@@ -62,6 +62,18 @@ printf '  experiment  %s\n' "$EXP"
 printf '  disk free   %s\n' "$(df -BG --output=avail "$ROOT" | tail -1 | tr -d ' ')"
 nvidia-smi --query-gpu=name,memory.total,memory.used --format=csv,noheader | sed 's/^/  GPU         /'
 
+USED=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | head -1)
+if [ "${USED:-0}" -gt 1000 ]; then
+    nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv | sed 's/^/    /'
+    die "${USED} MiB of GPU memory is already in use, so vLLM cannot start.
+inference/server.py launches vLLM with start_new_session=True, so it outlives a plain
+kill of the experiment process. Release it with:
+
+    pkill -f 'vllm.entrypoints.openai.api_server'
+
+then rerun this script."
+fi
+
 # ---------------------------------------------------------------- 2. dataset
 say "2/7 rebuild release (profile=$PROFILE)"
 if [ -f "$NEW/manifest.json" ]; then
@@ -179,6 +191,6 @@ Monitoring:
   python3 deploy/estimate_runtime.py $EXP
 
 Stop:
-  kill $PID
+  kill $PID && pkill -f 'vllm.entrypoints.openai.api_server'
 
 EOF
