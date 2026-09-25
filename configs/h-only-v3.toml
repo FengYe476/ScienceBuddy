@@ -17,7 +17,7 @@
 #
 # PROFILE=wide is required when building the release.
 mode = "harness_evolve"
-experiment = "../runs/h-only-v2-02"
+experiment = "../runs/h-only-v3"
 
 [model]
 mode = "train"
