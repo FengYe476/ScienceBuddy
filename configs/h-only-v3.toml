@@ -32,9 +32,15 @@ selection_tasks = 30              # must equal the val split size (phase.py:126-
 candidates = 3
 workers = 4
 feedback_every = 16               # upstream default; train has 200 tasks so 3 x 16 = 48 does not wrap
-# preflight_task_id omitted: phase.py:187 falls back to train[0]. A hardcoded ID belongs to
-# one release's train split and trips "Preflight task must belong to training split" after a
-# release change.
+# phase.py:187 falls back to train[0], which in this release is a MouseMine gene-set task
+# that H0 cannot finish -- it exhausts its nine model calls without submitting, so
+# evidence.py:preflight_passed rejects it and phase.py:199 aborts the whole run before the
+# baseline. The same function also gates every candidate (selection.py:20), so a hard
+# preflight task silently tests "can the model solve this" instead of "does this program
+# execute": in h-only-v2-02 it eliminated two candidates, including the only one aimed at
+# the dominant failure mode. This task is pinned because H0 completed it in 5 of 9 calls
+# with 4 tool calls and a valid submission, so it exercises the tool path with headroom.
+preflight_task_id = "dbqa-03b2795aaa78"
 steps_per_phase = 6
 user_turns = 1
 actions = 9
