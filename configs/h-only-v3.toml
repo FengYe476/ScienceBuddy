@@ -1,0 +1,58 @@
+# Harness-only reproduction against the id715-val30-test90-v1 release.
+#
+#   bash deploy/start_run.sh configs/h-only-v3.toml id715-val30-test90-v1 id200-val30-test30-v2
+#
+# Two changes from h-only-v2, both aimed at questions that run could not answer.
+#
+# Test 30 -> 90. On 30 tasks the held-out gain of +4 sits at McNemar p=0.29, so the effect
+# could not be established. Test is evaluated exactly twice per run (baseline and final),
+# while val is evaluated once per candidate per step and therefore drives about 75% of the
+# episode budget, so tripling test costs ~25% more while tripling the statistical power.
+# Val stays at 30: re-measurement drift was 0 there and every accepted candidate also
+# improved test, so selection quality was not the bottleneck.
+#
+# Steps 3 -> 6. The validation curve was still accelerating when v2 stopped (accepted
+# deltas +2, +3, +5, and at step 3 two candidates beat the parent by +5 and +4), so the
+# ceiling of the mechanism was never reached. The paper runs 24 updates; this run gets to 6.
+#
+# PROFILE=wide is required when building the release.
+mode = "harness_evolve"
+experiment = "../runs/h-only-v2-02"
+
+[model]
+mode = "train"
+steps = 30
+checkpoint_interval = 0
+eval_interval = 30
+concurrency = 4
+tool_seconds = 60
+
+[harness_evolve]
+selection_tasks = 30              # must equal the val split size (phase.py:126-127 enforces it)
+candidates = 3
+workers = 4
+feedback_every = 16               # upstream default; train has 200 tasks so 3 x 16 = 48 does not wrap
+# preflight_task_id omitted: phase.py:187 falls back to train[0]. A hardcoded ID belongs to
+# one release's train split and trips "Preflight task must belong to training split" after a
+# release change.
+steps_per_phase = 6
+user_turns = 1
+actions = 9
+max_tokens = 4096
+context_tokens = 24576
+seed = 20260911                   # same SPLIT_SEED the release was built with
+tool_response_tokens = 2048
+tool_history_tokens = 8192
+
+[harness_evolve.improver]
+backend = "remote"
+base_url = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+model = "qwen3.8-max"             # the paper uses GPT-6 Astra; this is the accessible substitute, declare it
+reasoning_effort = "medium"
+api_key_env = "SCIENCEBUDDY_IMPROVER_API_KEY"
+max_tokens = 8192
+
+[coevolve]
+worker_id = "rl-01"
+max_rounds = 3
+trigger = "always_debug"

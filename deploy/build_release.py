@@ -31,7 +31,11 @@ EVAL1 = "hf://datasets/biomni/Eval1/biomni_eval1_dataset.parquet"
 
 SPLIT_SEED = 20260911
 FAMILY_WEIGHTS = {"DbQA": 511, "GWAS": 180, "ProtocolQA": 108, "LitQA2": 96}
-PROFILES = {"debug": (40, 10, 10), "small": (200, 30, 30), "full": (715, 90, 90)}
+PROFILES = {"debug": (40, 10, 10), "small": (200, 30, 30), "full": (715, 90, 90),
+            # Test carries the reported measurement and is evaluated twice per run; val is
+            # evaluated once per candidate per step, so it drives 75%+ of the episode budget.
+            # "wide" buys statistical power on test without paying for it on val.
+            "wide": (715, 30, 90)}
 LAKE_DIRNAME = "resources"
 # data/verifier.py:25 uses case-sensitive exact matching for this subtask, so the name must match exactly
 CASE_SENSITIVE_SUBTASK = "gwas_variant_prioritization"
