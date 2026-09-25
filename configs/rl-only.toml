@@ -7,22 +7,22 @@
 #
 # Every difference from the upstream defaults carries its reason at the end of the line.
 mode = "model"
-experiment = "../runs/rl-only-20260922"
+experiment = "../runs/rl-only-v2"
 
 [model]
 mode = "train"
 steps = 30                        # Sec 4.4 uses roughly 2 hours; get it running first, then extend
 checkpoint_interval = 0
 eval_interval = 30
-concurrency = 16                  # upstream uses 64; the local runtime spawns 2 subprocesses per episode
+concurrency = 16                  # 4 engines on 4 GPUs, so 4 episodes per engine -- the ratio that
+                                  # cleared the 900s episode budget on the harness side
 tool_seconds = 60
 
 [harness_evolve]
-selection_tasks = 10              # must equal the val split size (phase.py:126-127 enforces it)
+selection_tasks = 30              # must equal the val split size (phase.py:126-127 enforces it)
 candidates = 3
 workers = 16                      # upstream uses 64; matched to --cpus-per-task=16
 feedback_every = 8                # upstream uses 16; train has only 40 tasks, so 3 x 16 = 48 would wrap
-preflight_task_id = "dbqa-08fb781e497b"   # must belong to the train split (phase.py:188)
 steps_per_phase = 3
 user_turns = 1
 actions = 9
