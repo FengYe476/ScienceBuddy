@@ -191,18 +191,38 @@ def main():
         hit_test = sorted(found & test_only)
         hit_train = sorted(found & train_only)
 
+        lines = source.splitlines()
+
+        def context(needle):
+            """Where the literal sits, so a citation in a comment can be told from a
+            hardcoded answer. Severity depends entirely on this."""
+            out = []
+            for i, line in enumerate(lines):
+                if needle in line:
+                    stripped = line.strip()
+                    kind = "comment" if stripped.startswith("#") else "code/text"
+                    out.append((i + 1, kind, stripped[:96]))
+            return out
+
         flag = lambda n: "!! " if n else "   "
-        print(f"      {flag(leaked_answers)}reference answers verbatim   {len(leaked_answers)}"
-              + (f"  {leaked_answers[:args.show]}" if leaked_answers else ""))
-        print(f"      {flag(leaked_ids)}task IDs                     {len(leaked_ids)}"
-              + (f"  {leaked_ids[:args.show]}" if leaked_ids else ""))
+        print(f"      {flag(leaked_answers)}reference answers verbatim   {len(leaked_answers)}")
+        for a in leaked_answers[:args.show]:
+            where = ", ".join(f"{tid}({sp})" for tid, sp in answers[a])
+            print(f"           {a!r}  is the answer to {where}")
+            for ln, kind, snippet in context(a)[:3]:
+                print(f"             line {ln} [{kind}] {snippet}")
+        print(f"      {flag(leaked_ids)}task IDs                     {len(leaked_ids)}")
+        for t_id in leaked_ids[:args.show]:
+            print(f"           {t_id}  (split: {ids[t_id]})")
+            for ln, kind, snippet in context(t_id)[:2]:
+                print(f"             line {ln} [{kind}] {snippet}")
         print(f"      {flag(hit_test)}literals seen only in test   {len(hit_test)}"
               + (f"  {hit_test[:args.show]}" if hit_test else ""))
         print(f"         literals seen only in train  {len(hit_train)}"
               + (f"  {hit_train[:args.show]}" if hit_train else ""))
-        if hit_train:
-            print("         (train is the improver's evidence, so these are expected; read them "
-                  "for whether they\n          generalise -- a column name does, one gene set does not)")
+        for lit in hit_train[:args.show]:
+            for ln, kind, snippet in context(lit)[:1]:
+                print(f"           line {ln} [{kind}] {snippet}")
 
     print(f"\n  Corpus: {len(tokens['train'])} distinctive literals in train, "
           f"{len(tokens['test'])} in test, {len(answers)} multi-character reference answers.\n")
