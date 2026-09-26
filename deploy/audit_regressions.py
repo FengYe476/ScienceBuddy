@@ -57,6 +57,8 @@ def main():
     ap.add_argument("run")
     ap.add_argument("--phase", default="h0001")
     ap.add_argument("--initial", default="src/simple_scibuddy/harness/scientific.py")
+    ap.add_argument("--release", default=None,
+                    help="release directory; enables the reachable / no-lookup split")
     args = ap.parse_args()
 
     root = pathlib.Path(args.run) / "harness_evolve" / args.phase
@@ -117,6 +119,58 @@ def main():
               f"  (n = {n} pairs)")
         print("  A positive r is what the interference claim predicts; with this few pairs it "
               "is\n  suggestive at best, never conclusive.")
+
+    if args.release:
+        # Splitting by reachability separates two effects that both lower the rate.
+        # Where nothing can be looked up, a correct answer is always a guess, so the
+        # grounding of answers cannot improve there and the rate measures only how much
+        # each edit perturbs the model. Where lookups are possible, a falling rate can
+        # equally mean answers became evidence-backed rather than lucky.
+        DEAD = {"scientific_literature_reading", "variant_from_sequence_task",
+                "variant_multi_sequence_task", "experimental_protocol_troubleshooting"}
+        release = pathlib.Path(args.release)
+        manifest = json.loads((release / "manifest.json").read_text())
+        subtask = {}
+        for row in manifest["tasks"]:
+            try:
+                subtask[row["id"]] = json.loads(
+                    (release / row["id"] / "public/task.json").read_text()).get("subtask")
+            except (OSError, ValueError):
+                subtask[row["id"]] = None
+
+        print("\n" + BAR)
+        print("[1b] the same rate, split by whether a harness can reach the task")
+        print(BAR)
+        print(f"\n  {'pair':14}" + f"{'reachable':>26}" + f"{'no lookup possible':>26}")
+        print(f"  {'':14}{'right':>8}{'broke':>8}{'rate':>10}{'right':>8}{'broke':>8}{'rate':>10}")
+        series = {True: [], False: []}
+        for (a_name, a, _), (b_name, b, b_size) in zip(chain, chain[1:]):
+            cells = ""
+            for reachable in (True, False):
+                shared = [t for t in set(a) & set(b)
+                          if (subtask.get(t) not in DEAD) == reachable]
+                right = sum(a[t] for t in shared)
+                broke = sum(1 for t in shared if a[t] and not b[t])
+                rate = broke / right if right else 0.0
+                series[reachable].append((b_size, rate))
+                cells += f"{right:8}{broke:8}{rate:9.0%} "
+            print(f"  {a_name + ' -> ' + b_name:14}{cells}")
+
+        print()
+        for reachable, label in ((True, "reachable"), (False, "no lookup possible")):
+            pts = series[reachable]
+            n = len(pts)
+            mx = sum(x for x, _ in pts) / n
+            my = sum(y for _, y in pts) / n
+            cov = sum((x - mx) * (y - my) for x, y in pts)
+            vx = sum((x - mx) ** 2 for x, _ in pts) ** 0.5
+            vy = sum((y - my) ** 2 for _, y in pts) ** 0.5
+            r = cov / (vx * vy) if vx and vy else 0.0
+            print(f"  {label:22} size vs rate: r = {r:+.2f}   "
+                  f"rates {[f'{y:.0%}' for _, y in pts]}")
+        print("\n  If the no-lookup rate stays flat while the reachable rate falls, the fall is")
+        print("  answers becoming evidence-backed. If the no-lookup rate rises with size, larger")
+        print("  edits perturb the model more, which is what the interference claim needs.")
 
     print("\n" + BAR)
     print("[2] tasks that broke and never came back")
