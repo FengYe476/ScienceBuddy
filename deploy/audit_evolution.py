@@ -78,6 +78,33 @@ def parts(source):
     return consts, body
 
 
+def zones(source):
+    """Map every line to a zone, because only some of the file reaches the solver.
+
+    A task ID quoted in the module docstring is an audit trail the model never sees.
+    The same string inside a constant that build_messages concatenates into the system
+    prompt is something the model reads on every task. Those are not the same finding.
+    """
+    tree = ast.parse(source)
+    total = len(source.splitlines())
+    zone = ["code"] * (total + 1)
+    if (tree.body and isinstance(tree.body[0], ast.Expr)
+            and isinstance(tree.body[0].value, ast.Constant)
+            and isinstance(tree.body[0].value.value, str)):
+        for i in range(tree.body[0].lineno, tree.body[0].end_lineno + 1):
+            zone[i] = "docstring"
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and isinstance(node.value, ast.Constant) \
+                and isinstance(node.value.value, str):
+            name = next((x.id for x in node.targets if isinstance(x, ast.Name)), "?")
+            for i in range(node.lineno, node.end_lineno + 1):
+                zone[i] = f"const {name}"
+    for i, line in enumerate(source.splitlines(), start=1):
+        if zone[i] == "code" and line.strip().startswith("#"):
+            zone[i] = "comment"
+    return zone
+
+
 def hunks(before, after):
     """Contiguous changed regions, so one rewritten paragraph counts once."""
     matcher = difflib.SequenceMatcher(None, before, after, autojunk=False)
@@ -183,7 +210,12 @@ def main():
     for name, path in chain[1:]:
         source = path.read_text()
         found = distinctive(source)
+        zone_all = zones(source)
+        reaching = sorted({z for z in zone_all if z.startswith("const ")})
+        inert = sum(1 for z in zone_all if z in ("docstring", "comment"))
         print(f"\n  [{name}]  {len(source.splitlines())} lines, {len(found)} distinctive literals")
+        print(f"      zones: {inert} lines inert (docstring/comment), "
+              f"constants reaching the solver: {[z[6:] for z in reaching] or 'none'}")
 
         leaked_answers = sorted(a for a in answers
                                 if re.search(rf"(?<![A-Za-z0-9_]){re.escape(a)}(?![A-Za-z0-9_])", source))
@@ -193,15 +225,14 @@ def main():
 
         lines = source.splitlines()
 
+        zone = zones(source)
+
         def context(needle):
-            """Where the literal sits, so a citation in a comment can be told from a
-            hardcoded answer. Severity depends entirely on this."""
+            """Where the literal sits. Only some zones reach the solver."""
             out = []
-            for i, line in enumerate(lines):
+            for i, line in enumerate(lines, start=1):
                 if needle in line:
-                    stripped = line.strip()
-                    kind = "comment" if stripped.startswith("#") else "code/text"
-                    out.append((i + 1, kind, stripped[:96]))
+                    out.append((i, zone[i], line.strip()[:88]))
             return out
 
         flag = lambda n: "!! " if n else "   "
